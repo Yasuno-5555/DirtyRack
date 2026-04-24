@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dirtydata_core::ir::Graph;
 use dirtydata_core::types::{StableId, NodeKind};
 use dirtydata_core::graph_utils;
-use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext};
+use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext, MidiInNode, MidiEvent};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -13,13 +13,13 @@ use std::sync::Arc;
 /// A stateful runner for the DSP graph.
 struct DspRunner {
     nodes: Vec<(StableId, Box<dyn DspNode>)>,
-    node_outputs: HashMap<StableId, [f32; 2]>,
-    sorted_ids: Vec<StableId>,
+    // node_id -> [port_index -> [L, R]]
+    node_outputs: HashMap<StableId, Vec<[f32; 2]>>,
     graph: Graph,
 }
 
 impl DspRunner {
-    fn new(graph: Graph) -> Self {
+    fn new(graph: Graph, midi_rx: Option<crossbeam_channel::Receiver<MidiEvent>>) -> Self {
         let (sorted_ids, _) = graph_utils::topological_sort(&graph);
         let mut nodes = Vec::new();
         let mut node_outputs = HashMap::new();
@@ -51,29 +51,29 @@ impl DspRunner {
                                     }
                                 };
                                 Box::new(AssetReaderNode::new(Arc::new(samples)))
-                            } else {
-                                Box::new(GainNode)
-                            }
-                        } else {
-                            Box::new(GainNode)
-                        }
+                            } else { Box::new(GainNode) }
+                        } else { Box::new(GainNode) }
                     }
                     "Trigger" => Box::new(TriggerNode),
                     "Envelope" | "ADSR" => Box::new(EnvelopeNode::new()),
                     "Automation" => Box::new(AutomationNode),
+                    "MidiIn" => {
+                        if let Some(rx) = &midi_rx {
+                            Box::new(MidiInNode::new(rx.clone()))
+                        } else {
+                            Box::new(GainNode)
+                        }
+                    }
                     _ => Box::new(GainNode),
                 };
                 nodes.push((id, dsp_node));
-                node_outputs.insert(id, [0.0, 0.0]);
+                
+                // Pre-allocate 4 stereo ports per node for simplicity, or 1 if standard
+                node_outputs.insert(id, vec![[0.0, 0.0]; 4]);
             }
         }
 
-        Self {
-            nodes,
-            node_outputs,
-            sorted_ids,
-            graph,
-        }
+        Self { nodes, node_outputs, graph }
     }
 
     fn process_sample(&mut self, ctx: &ProcessContext) -> [f32; 2] {
@@ -86,21 +86,33 @@ impl DspRunner {
             let mut inputs = Vec::new();
             for edge in self.graph.edges.values() {
                 if edge.target.node_id == *id {
-                    if let Some(out) = self.node_outputs.get(&edge.source.node_id) {
-                        inputs.push(out[0]);
-                        inputs.push(out[1]);
+                    if let Some(ports) = self.node_outputs.get(&edge.source.node_id) {
+                        // Determine source port index. For now, assume port_name maps to index.
+                        // "out" | "0" -> 0, "1" -> 1, "2" -> 2, etc.
+                        let port_idx = match edge.source.port_name.as_str() {
+                            "out" | "gate" | "0" => 0,
+                            "pitch" | "1" => 1,
+                            "velocity" | "2" => 2,
+                            _ => 0,
+                        };
+                        if let Some(out) = ports.get(port_idx) {
+                            inputs.push(out[0]);
+                            inputs.push(out[1]);
+                        }
                     }
                 }
             }
 
-            let mut outputs = [0.0, 0.0];
+            let mut outputs = vec![[0.0, 0.0]; 4]; // Work buffer
             dsp_node.process(&inputs, &mut outputs, &node_ir.config, ctx);
             
             self.node_outputs.insert(*id, outputs);
 
             if node_ir.kind == NodeKind::Sink {
-                final_out[0] += outputs[0];
-                final_out[1] += outputs[1];
+                if let Some(ports) = self.node_outputs.get(id) {
+                    final_out[0] += ports[0][0];
+                    final_out[1] += ports[0][1];
+                }
             }
         }
 
@@ -110,7 +122,9 @@ impl DspRunner {
 
 pub struct AudioEngine {
     runner_tx: crossbeam_channel::Sender<DspRunner>,
+    midi_rx: crossbeam_channel::Receiver<MidiEvent>,
     crash_flag: Arc<AtomicBool>,
+    _midi_conn: Option<midir::MidiInputConnection<()>>,
     _stream: cpal::Stream,
 }
 
@@ -122,11 +136,33 @@ impl AudioEngine {
         let sample_rate = config.sample_rate().0 as f32;
         let channels = config.channels() as usize;
 
-        let (runner_tx, runner_rx) = crossbeam_channel::bounded::<DspRunner>(1);
-        let _ = runner_tx.send(DspRunner::new(initial_graph));
-        
+        let (midi_tx, midi_rx) = crossbeam_channel::unbounded::<MidiEvent>();
+        let global_sample_index_atomic = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let gsi_for_midi = global_sample_index_atomic.clone();
+
         let crash_flag = Arc::new(AtomicBool::new(false));
 
+        // MIDI Input setup
+        let midi_in = midir::MidiInput::new("DirtyData MIDI Input")?;
+        let ports = midi_in.ports();
+        let _midi_conn = if let Some(port) = ports.first() {
+            let conn = midi_in.connect(port, "dirtydata-midi-port", move |_stamp, message, _| {
+                if message.len() >= 3 {
+                    let event = MidiEvent {
+                        sample_index: gsi_for_midi.load(Ordering::Relaxed),
+                        message: [message[0], message[1], message[2]],
+                    };
+                    let _ = midi_tx.send(event);
+                }
+            }, ())?;
+            Some(conn)
+        } else {
+            None
+        };
+
+        let (runner_tx, runner_rx) = crossbeam_channel::bounded::<DspRunner>(1);
+        let _ = runner_tx.send(DspRunner::new(initial_graph, Some(midi_rx.clone())));
+        
         let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
         let mut current_runner: Option<DspRunner> = None;
@@ -136,7 +172,6 @@ impl AudioEngine {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 &config.into(),
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    // 1. Check for runner updates
                     if let Ok(new_runner) = runner_rx.try_recv() {
                         current_runner = Some(new_runner);
                     }
@@ -146,9 +181,8 @@ impl AudioEngine {
                         return;
                     };
 
-                    // 2. Sample Domain Processing
                     for frame in data.chunks_mut(channels) {
-                        let ctx = nodes::ProcessContext {
+                        let ctx = ProcessContext {
                             sample_rate,
                             global_sample_index,
                         };
@@ -160,6 +194,7 @@ impl AudioEngine {
                             }
                         }
                         global_sample_index += 1;
+                        global_sample_index_atomic.store(global_sample_index, Ordering::Relaxed);
                     }
                 },
                 err_fn,
@@ -170,19 +205,15 @@ impl AudioEngine {
 
         stream.play()?;
 
-        Ok(Self {
-            runner_tx,
-            crash_flag,
-            _stream: stream,
-        })
+        Ok(Self { runner_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
     }
 
     pub fn check_crash(&self) -> bool {
         self.crash_flag.swap(false, Ordering::SeqCst)
     }
 
-    pub fn update_graph(&self, new_graph: Graph) {
-        let _ = self.runner_tx.send(DspRunner::new(new_graph));
+    pub fn update_graph(&self, graph: Graph) {
+        let _ = self.runner_tx.send(DspRunner::new(graph, Some(self.midi_rx.clone())));
     }
 }
 
