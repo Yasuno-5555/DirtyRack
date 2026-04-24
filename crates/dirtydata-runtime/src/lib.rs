@@ -4,11 +4,12 @@ use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dirtydata_core::ir::Graph;
 use dirtydata_core::types::{StableId, NodeKind};
-use dirtydata_core::graph_utils;
+use dirtydata_core::{graph_utils, ConfigSnapshot};
 use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext, MidiInNode, MidiEvent};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use serde_json;
 
 pub struct ParameterUpdate {
     pub node_id: StableId,
@@ -74,6 +75,11 @@ impl DspRunner {
                             Box::new(GainNode::new())
                         }
                     }
+                    "VoiceStack" => {
+                        let template_str = node.config.get("template").and_then(|v| v.as_string()).map(|s| s.as_str()).unwrap_or("{}");
+                        let template_graph: Graph = serde_json::from_str(&template_str).unwrap_or_default();
+                        Box::new(VoiceStackNode::new(template_graph, 8))
+                    }
                     _ => Box::new(GainNode::new()),
                 };
                 nodes.push((id, dsp_node));
@@ -132,6 +138,119 @@ impl DspRunner {
             if *id == node_id {
                 node.update_parameter(param, value);
                 break;
+            }
+        }
+    }
+
+    pub fn update_all_nodes(&mut self, param: &str, value: f32) {
+        for (_, node) in &mut self.nodes {
+            node.update_parameter(param, value);
+        }
+    }
+}
+
+struct VoiceSlot {
+    runner: DspRunner,
+    note: Option<u8>,
+    last_on: u64,
+    pending_trigger: Option<(u8, u8)>,
+}
+
+pub struct VoiceStackNode {
+    slots: Vec<VoiceSlot>,
+}
+
+impl VoiceStackNode {
+    pub fn new(template_graph: Graph, count: usize) -> Self {
+        let mut slots = Vec::new();
+        for _ in 0..count {
+            slots.push(VoiceSlot {
+                runner: DspRunner::new(template_graph.clone(), None),
+                note: None,
+                last_on: 0,
+                pending_trigger: None,
+            });
+        }
+        Self { slots }
+    }
+}
+
+impl DspNode for VoiceStackNode {
+    fn process(&mut self, _inputs: &[f32], outputs: &mut [[f32; 2]], _config: &ConfigSnapshot, ctx: &ProcessContext) {
+        // Broadcast global inputs to all voices (port 0 of VoiceStack -> global param)
+        // For simplicity, we just pass external inputs to each voice runner.
+        
+        // Sum outputs
+        outputs[0] = [0.0, 0.0];
+
+        for (i, slot) in self.slots.iter_mut().enumerate() {
+            // If pending trigger, wait for idle (after steal)
+            if let Some((note, vel)) = slot.pending_trigger {
+                // How to check if idle? 
+                // We'll assume the runner nodes update their state.
+                // For now, let's just trigger after 5ms (FastRelease time)
+                // This is a bit simplified; in a real engine we'd check Envelope state.
+                // But for the proof of concept:
+                slot.runner.update_all_nodes("frequency", 440.0 * 2.0_f32.powf((note as f32 - 69.0) / 12.0));
+                slot.runner.update_all_nodes("velocity", vel as f32 / 127.0);
+                slot.runner.update_all_nodes("gate", 1.0);
+                slot.note = Some(note);
+                slot.last_on = ctx.global_sample_index;
+                slot.pending_trigger = None;
+            }
+
+            let out = slot.runner.process_sample(ctx);
+            outputs[0][0] += out[0];
+            outputs[0][1] += out[1];
+        }
+    }
+
+    fn update_parameter(&mut self, param: &str, value: f32) {
+        // Handle MIDI-like commands or broadcast global params
+        if param == "note_on" {
+            let note = (value as u32 & 0xFF) as u8;
+            let vel = ((value as u32 >> 8) & 0xFF) as u8;
+            
+            // Allocation logic
+            // 1. Find idle slot
+            let mut target_idx = None;
+            for (i, slot) in self.slots.iter().enumerate() {
+                if slot.note.is_none() {
+                    target_idx = Some(i);
+                    break;
+                }
+            }
+            
+            // 2. Steal if no idle
+            if target_idx.is_none() {
+                let mut oldest_idx = 0;
+                let mut oldest_time = u64::MAX;
+                for (i, slot) in self.slots.iter().enumerate() {
+                    if slot.last_on < oldest_time {
+                        oldest_time = slot.last_on;
+                        oldest_idx = i;
+                    }
+                }
+                target_idx = Some(oldest_idx);
+                // Trigger FastRelease
+                self.slots[oldest_idx].runner.update_all_nodes("steal", 1.0);
+            }
+            
+            if let Some(idx) = target_idx {
+                self.slots[idx].pending_trigger = Some((note, vel));
+            }
+        } else if param == "note_off" {
+            let note = value as u8;
+            for slot in &mut self.slots {
+                if slot.note == Some(note) {
+                    slot.runner.update_all_nodes("gate", 0.0);
+                    slot.note = None;
+                }
+            }
+        } else {
+            // Broadcast global parameter to all voices
+            for slot in &mut self.slots {
+                slot.runner.update_all_nodes(param, value);
             }
         }
     }

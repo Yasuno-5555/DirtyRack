@@ -357,8 +357,8 @@ impl DspNode for TriggerNode {
     }
 }
 
-#[derive(Clone, Copy)]
-enum EnvState { Idle, Attack, Decay, Sustain, Release }
+#[derive(Clone, Copy, PartialEq)]
+enum EnvState { Idle, Attack, Decay, Sustain, Release, FastRelease }
 
 pub struct EnvelopeNode {
     state: EnvState,
@@ -368,6 +368,10 @@ pub struct EnvelopeNode {
 impl EnvelopeNode {
     pub fn new() -> Self {
         Self { state: EnvState::Idle, level: 0.0 }
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.state == EnvState::Idle
     }
 }
 
@@ -417,10 +421,25 @@ impl DspNode for EnvelopeNode {
                     }
                 }
             }
+            EnvState::FastRelease => {
+                // Fade out in 5ms to avoid pops
+                let fade_out_rate = 1.0 / (0.005 * ctx.sample_rate);
+                self.level -= fade_out_rate;
+                if self.level <= 0.0 {
+                    self.level = 0.0;
+                    self.state = EnvState::Idle;
+                }
+            }
         }
 
         outputs[0][0] = self.level;
         outputs[0][1] = self.level;
+    }
+
+    fn update_parameter(&mut self, param: &str, _value: f32) {
+        if param == "steal" {
+            self.state = EnvState::FastRelease;
+        }
     }
 }
 

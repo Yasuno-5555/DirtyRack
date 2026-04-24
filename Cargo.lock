@@ -895,6 +895,7 @@ dependencies = [
  "midir",
  "rand 0.10.1",
  "rand_pcg",
+ "serde_json",
 ]
 
 [[package]]
