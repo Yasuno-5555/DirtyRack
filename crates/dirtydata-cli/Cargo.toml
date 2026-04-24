@@ -14,3 +14,5 @@ serde_json = { workspace = true }
 notify = "6.1.1"
 dirtydata-runtime = { path = "../dirtydata-runtime" }
 dirtydata-gui = { path = "../dirtydata-gui" }
+hound = "3.5.1"
+sha2 = "0.11.0"

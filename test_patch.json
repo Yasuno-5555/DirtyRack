@@ -1,0 +1,13 @@
+{
+  "description": "Test patch for verification",
+  "actions": [
+    { "action": "add_source", "name": "Osc" },
+    { "action": "add_sink", "name": "Main" },
+    { "action": "set_config", "node": "Osc", "key": "name", "value": "Oscillator" },
+    { "action": "set_config", "node": "Osc", "key": "waveform", "value": "sine" },
+    { "action": "set_config", "node": "Osc", "key": "frequency", "value": 440.0 },
+    { "action": "set_config", "node": "Main", "key": "name", "value": "Gain" },
+    { "action": "set_config", "node": "Main", "key": "gain_db", "value": -6.0 },
+    { "action": "connect", "from": "Osc", "from_port": "out", "to": "Main", "to_port": "in" }
+  ]
+}

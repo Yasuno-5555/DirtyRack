@@ -93,6 +93,21 @@ enum Commands {
 
     /// Launch the graphical projector (GUI)
     Gui,
+
+    /// Render audio to a file (Deterministic Bounce)
+    Render {
+        /// Output WAV file path
+        #[arg(short, long, default_value = "output.wav")]
+        output: String,
+
+        /// Duration in seconds
+        #[arg(short, long, default_value_t = 5.0)]
+        length: f32,
+
+        /// Sample rate
+        #[arg(short, long, default_value_t = 44100.0)]
+        sample_rate: f32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -191,6 +206,7 @@ fn main() {
             dirtydata_gui::run_gui().unwrap();
             Ok(())
         }
+        Commands::Render { output, length, sample_rate } => cmd_render(output, length, sample_rate),
     };
 
     if let Err(e) = result {
@@ -1209,3 +1225,45 @@ fn find_disposables(graph: &Graph) -> Vec<(StableId, String)> {
 fn hex_short(bytes: &[u8]) -> String {
     bytes[..8].iter().map(|b| format!("{:02x}", b)).collect()
 }
+
+fn cmd_render(output_path: String, length_secs: f32, sample_rate: f32) -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = std::env::current_dir()?;
+    let storage = Storage::open(&cwd)?;
+    let graph = storage.load_graph()?;
+
+    println!("{} Rendering audio (Deterministic Bounce)...", "▶".blue().bold());
+    println!("  Target: {}", output_path.yellow());
+    println!("  Length: {}s, Rate: {}Hz", length_secs, sample_rate);
+
+    use dirtydata_runtime::OfflineRenderer;
+    let mut renderer = OfflineRenderer::new(graph, sample_rate);
+    
+    let samples = renderer.render(length_secs);
+
+    // Save to WAV
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: sample_rate as u32,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(&output_path, spec)?;
+    for &s in &samples {
+        writer.write_sample(s)?;
+    }
+    writer.finalize()?;
+
+    // Calculate Hash
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    let file_content = std::fs::read(&output_path)?;
+    hasher.update(&file_content);
+    let hash = hasher.finalize();
+    let hash_str: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+
+    println!("{} Render complete!", "✓".green().bold());
+    println!("  SHA-256: {}", hash_str.cyan());
+    
+    Ok(())
+}
+

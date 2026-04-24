@@ -16,8 +16,12 @@ pub struct ParameterUpdate {
     pub value: f32,
 }
 
+pub mod offline;
+
+pub use offline::OfflineRenderer;
+
 /// A stateful runner for the DSP graph.
-struct DspRunner {
+pub(crate) struct DspRunner {
     nodes: Vec<(StableId, Box<dyn DspNode>)>,
     // node_id -> [port_index -> [L, R]]
     node_outputs: HashMap<StableId, Vec<[f32; 2]>>,
