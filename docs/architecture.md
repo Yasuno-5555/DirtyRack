@@ -45,6 +45,15 @@ DirtyData は、Git にインスパイアされたブランチ管理システム
 - **Hot-Reloading**: `.dirtydata/ir/current.json` の変更を `notify` クレートでリアルタイムに検知し、オーディオエンジンのグラフを自動更新します。
 - 外部ファイルが手動で書き換えられた場合、即座にそれを検知し、Confidence Score（信頼性スコア）を `Suspicious` に落として警告を出します。
 
+## 6. Graphical Projector (GUI as Projection)
+
+`dirtydata-gui` クレートは、システムの真実を視覚化し、ユーザーからの干渉を仲介します。
+
+- **Silent Projector (Read-Only Projection)**: `ArcSwap<Graph>` と `notify` を組み合わせ、Core の IR (current.json) をリアルタイムに投影。描画負荷がオーディオエンジンをブロックすることはありません。
+- **The Surgeon (Interaction Machine)**: 楽観的描画（Optimistic Rendering）により、Core のバリデーション待ちの間も「接続された未来」を黄色い破線で即座に表示。操作の遅延をユーザーから隠蔽します。
+- **Cosmetic vs Semantic**: ノードの座標やズーム位置は `ui_layout.json` (Cosmetic State) に保存され、Core の IR には一切影響を与えません。一方、ノード接続は `UserAction` としてパッチ化され、Core の真実へと昇格します。
+- **Semantic Projections**: `Intent Zones` による意図のグループ化や、`Confidence Score` に基づくノードの明滅（Glitch エフェクト）により、数値以上の「システムの状態」を伝えます。
+
 ## クレートの依存関係
 
 ```mermaid
@@ -53,6 +62,10 @@ graph TD
     CLI --> Observer[dirtydata-observer]
     CLI --> Intent[dirtydata-intent]
     CLI --> Runtime[dirtydata-runtime]
+    CLI --> GUI[dirtydata-gui]
+    
+    GUI --> Core
+    GUI --> Crossbeam[crossbeam-channel]
     
     Runtime --> Core
     Runtime --> Host[dirtydata-host]
