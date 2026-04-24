@@ -1,0 +1,259 @@
+use dirtydata_core::types::ConfigSnapshot;
+use rand::prelude::*;
+use rand_pcg::Pcg32;
+use std::sync::Arc;
+
+/// The fundamental trait for a DSP node.
+/// Operates in the Sample Domain (one stereo sample at a time).
+pub trait DspNode: Send + Sync {
+    /// Process one stereo sample.
+    /// inputs: flattened stereo samples [L1, R1, L2, R2, ...]
+    /// outputs: flattened stereo samples [Lout, Rout, ...]
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, sample_rate: f32);
+}
+
+// ──────────────────────────────────────────────
+// §1 — Sources
+// ──────────────────────────────────────────────
+
+pub struct OscillatorNode {
+    phase: f32,
+}
+
+impl OscillatorNode {
+    pub fn new() -> Self {
+        Self { phase: 0.0 }
+    }
+}
+
+impl DspNode for OscillatorNode {
+    fn process(&mut self, _inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, sample_rate: f32) {
+        let freq = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(440.0) as f32;
+        let wave_type = config.get("waveform").and_then(|v| v.as_string());
+        
+        let phase_inc = freq / sample_rate;
+        
+        let val = match wave_type.map(|s| s.as_str()).unwrap_or("sine") {
+            "sine" => (self.phase * 2.0 * std::f32::consts::PI).sin(),
+            "saw" => (self.phase * 2.0) - 1.0,
+            "square" => if self.phase < 0.5 { 1.0 } else { -1.0 },
+            "triangle" => {
+                let v = self.phase * 4.0;
+                if v < 1.0 { v - 0.0 }
+                else if v < 3.0 { 2.0 - v }
+                else { v - 4.0 }
+            }
+            _ => (self.phase * 2.0 * std::f32::consts::PI).sin(),
+        };
+
+        outputs[0] = val;
+        outputs[1] = val;
+
+        self.phase = (self.phase + phase_inc) % 1.0;
+    }
+}
+
+pub struct NoiseNode {
+    rng: Pcg32,
+}
+
+impl NoiseNode {
+    pub fn new(seed: u64) -> Self {
+        Self { rng: Pcg32::seed_from_u64(seed) }
+    }
+}
+
+impl DspNode for NoiseNode {
+    fn process(&mut self, _inputs: &[f32], outputs: &mut [f32], _config: &ConfigSnapshot, _sample_rate: f32) {
+        let val: f32 = self.rng.random_range(-1.0..1.0);
+        outputs[0] = val;
+        outputs[1] = val;
+    }
+}
+
+pub struct AssetReaderNode {
+    data: Arc<Vec<f32>>,
+    cursor: usize,
+}
+
+impl AssetReaderNode {
+    pub fn new(data: Arc<Vec<f32>>) -> Self {
+        Self { data, cursor: 0 }
+    }
+}
+
+impl DspNode for AssetReaderNode {
+    fn process(&mut self, _inputs: &[f32], outputs: &mut [f32], _config: &ConfigSnapshot, _sample_rate: f32) {
+        if self.cursor + 1 < self.data.len() {
+            outputs[0] = self.data[self.cursor];
+            outputs[1] = self.data[self.cursor + 1];
+            self.cursor += 2;
+        } else {
+            outputs[0] = 0.0;
+            outputs[1] = 0.0;
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// §2 — Processors
+// ──────────────────────────────────────────────
+
+pub struct GainNode;
+
+impl DspNode for GainNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, _sample_rate: f32) {
+        let gain_db = config.get("gain_db").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+        let linear = 10.0_f32.powf(gain_db / 20.0);
+        
+        if inputs.len() >= 2 {
+            outputs[0] = inputs[0] * linear;
+            outputs[1] = inputs[1] * linear;
+        }
+    }
+}
+
+pub struct BiquadFilterNode {
+    z1: [f32; 2],
+    z2: [f32; 2],
+}
+
+impl BiquadFilterNode {
+    pub fn new() -> Self {
+        Self { z1: [0.0, 0.0], z2: [0.0, 0.0] }
+    }
+}
+
+impl DspNode for BiquadFilterNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, sample_rate: f32) {
+        let freq = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(1000.0) as f32;
+        let q = config.get("q").and_then(|v| v.as_float()).unwrap_or(0.707) as f32;
+        let filter_type = config.get("type").and_then(|v| v.as_string());
+
+        // Simple RBJ Biquad coefficients
+        let w0 = 2.0 * std::f32::consts::PI * freq / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos_w0 = w0.cos();
+
+        let (b0, b1, b2, a0, a1, a2) = match filter_type.map(|s| s.as_str()).unwrap_or("lpf") {
+            "hpf" => {
+                let b0 = (1.0 + cos_w0) / 2.0;
+                let b1 = -(1.0 + cos_w0);
+                let b2 = (1.0 + cos_w0) / 2.0;
+                let a0 = 1.0 + alpha;
+                let a1 = -2.0 * cos_w0;
+                let a2 = 1.0 - alpha;
+                (b0, b1, b2, a0, a1, a2)
+            }
+            _ => { // LPF
+                let b0 = (1.0 - cos_w0) / 2.0;
+                let b1 = 1.0 - cos_w0;
+                let b2 = (1.0 - cos_w0) / 2.0;
+                let a0 = 1.0 + alpha;
+                let a1 = -2.0 * cos_w0;
+                let a2 = 1.0 - alpha;
+                (b0, b1, b2, a0, a1, a2)
+            }
+        };
+
+        let inv_a0 = 1.0 / a0;
+        let ff0 = b0 * inv_a0;
+        let ff1 = b1 * inv_a0;
+        let ff2 = b2 * inv_a0;
+        let fb1 = a1 * inv_a0;
+        let fb2 = a2 * inv_a0;
+
+        for i in 0..2 {
+            let x = if inputs.len() > i { inputs[i] } else { 0.0 };
+            let y = ff0 * x + self.z1[i];
+            self.z1[i] = ff1 * x - fb1 * y + self.z2[i];
+            self.z2[i] = ff2 * x - fb2 * y;
+            outputs[i] = y;
+        }
+    }
+}
+
+pub struct DelayNode {
+    buffer: Vec<[f32; 2]>,
+    write_pos: usize,
+}
+
+impl DelayNode {
+    pub fn new(max_delay_samples: usize) -> Self {
+        Self {
+            buffer: vec![[0.0, 0.0]; max_delay_samples],
+            write_pos: 0,
+        }
+    }
+}
+
+impl DspNode for DelayNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, _sample_rate: f32) {
+        let delay_samples = config.get("delay_samples").and_then(|v| v.as_float()).unwrap_or(4410.0) as usize;
+        let feedback = config.get("feedback").and_then(|v| v.as_float()).unwrap_or(0.5) as f32;
+        
+        let read_pos = (self.write_pos + self.buffer.len() - delay_samples) % self.buffer.len();
+        let delayed = self.buffer[read_pos];
+        
+        outputs[0] = delayed[0];
+        outputs[1] = delayed[1];
+
+        let in_l = if inputs.len() >= 1 { inputs[0] } else { 0.0 };
+        let in_r = if inputs.len() >= 2 { inputs[1] } else { 0.0 };
+
+        self.buffer[self.write_pos] = [
+            in_l + delayed[0] * feedback,
+            in_r + delayed[1] * feedback,
+        ];
+        
+        self.write_pos = (self.write_pos + 1) % self.buffer.len();
+    }
+}
+
+// ──────────────────────────────────────────────
+// §3 — Math
+// ──────────────────────────────────────────────
+
+pub struct AddNode;
+
+impl DspNode for AddNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], _config: &ConfigSnapshot, _sample_rate: f32) {
+        // Sum all stereo input pairs
+        let mut l = 0.0;
+        let mut r = 0.0;
+        for chunk in inputs.chunks_exact(2) {
+            l += chunk[0];
+            r += chunk[1];
+        }
+        outputs[0] = l;
+        outputs[1] = r;
+    }
+}
+
+pub struct MultiplyNode;
+
+impl DspNode for MultiplyNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], _config: &ConfigSnapshot, _sample_rate: f32) {
+        if inputs.len() >= 4 {
+            outputs[0] = inputs[0] * inputs[2];
+            outputs[1] = inputs[1] * inputs[3];
+        } else {
+            outputs[0] = 0.0;
+            outputs[1] = 0.0;
+        }
+    }
+}
+
+pub struct ClipNode;
+
+impl DspNode for ClipNode {
+    fn process(&mut self, inputs: &[f32], outputs: &mut [f32], config: &ConfigSnapshot, _sample_rate: f32) {
+        let min = config.get("min").and_then(|v| v.as_float()).unwrap_or(-1.0) as f32;
+        let max = config.get("max").and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
+        
+        if inputs.len() >= 2 {
+            outputs[0] = inputs[0].clamp(min, max);
+            outputs[1] = inputs[1].clamp(min, max);
+        }
+    }
+}

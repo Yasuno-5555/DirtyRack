@@ -9,3 +9,7 @@ dirtydata-core = { path = "../dirtydata-core" }
 cpal = "0.15.2"
 arc-swap = "1.6.0"
 dirtydata-host = { path = "../dirtydata-host" }
+rand = "0.10.1"
+rand_pcg = "0.10.2"
+hound = "3.5.1"
+crossbeam-channel = "0.5.15"

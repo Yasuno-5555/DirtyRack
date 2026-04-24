@@ -16,6 +16,7 @@
 pub mod actions;
 pub mod constitution;
 pub mod dsl;
+pub mod graph_utils;
 pub mod hash;
 pub mod ir;
 pub mod patch;

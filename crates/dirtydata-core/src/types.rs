@@ -234,6 +234,13 @@ impl ConfigValue {
             _ => None,
         }
     }
+
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            Self::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
 }
 
 /// Immutable snapshot of a node's configuration.
