@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dirtydata_core::ir::Graph;
 use dirtydata_core::types::{StableId, NodeKind};
 use dirtydata_core::graph_utils;
-use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode};
+use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -58,6 +58,9 @@ impl DspRunner {
                             Box::new(GainNode)
                         }
                     }
+                    "Trigger" => Box::new(TriggerNode),
+                    "Envelope" | "ADSR" => Box::new(EnvelopeNode::new()),
+                    "Automation" => Box::new(AutomationNode),
                     _ => Box::new(GainNode),
                 };
                 nodes.push((id, dsp_node));
@@ -73,7 +76,7 @@ impl DspRunner {
         }
     }
 
-    fn process_sample(&mut self, sample_rate: f32) -> [f32; 2] {
+    fn process_sample(&mut self, ctx: &ProcessContext) -> [f32; 2] {
         let mut final_out = [0.0, 0.0];
 
         for (id, dsp_node) in &mut self.nodes {
@@ -91,7 +94,7 @@ impl DspRunner {
             }
 
             let mut outputs = [0.0, 0.0];
-            dsp_node.process(&inputs, &mut outputs, &node_ir.config, sample_rate);
+            dsp_node.process(&inputs, &mut outputs, &node_ir.config, ctx);
             
             self.node_outputs.insert(*id, outputs);
 
@@ -127,6 +130,7 @@ impl AudioEngine {
         let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
         let mut current_runner: Option<DspRunner> = None;
+        let mut global_sample_index: u64 = 0;
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
@@ -144,12 +148,18 @@ impl AudioEngine {
 
                     // 2. Sample Domain Processing
                     for frame in data.chunks_mut(channels) {
-                        let out = runner.process_sample(sample_rate);
+                        let ctx = nodes::ProcessContext {
+                            sample_rate,
+                            global_sample_index,
+                        };
+                        
+                        let out = runner.process_sample(&ctx);
                         for (i, val) in out.iter().enumerate() {
                             if i < frame.len() {
                                 frame[i] = *val;
                             }
                         }
+                        global_sample_index += 1;
                     }
                 },
                 err_fn,

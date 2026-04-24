@@ -241,6 +241,13 @@ impl ConfigValue {
             _ => None,
         }
     }
+
+    pub fn as_list(&self) -> Option<&Vec<ConfigValue>> {
+        match self {
+            Self::List(l) => Some(l),
+            _ => None,
+        }
+    }
 }
 
 /// Immutable snapshot of a node's configuration.
