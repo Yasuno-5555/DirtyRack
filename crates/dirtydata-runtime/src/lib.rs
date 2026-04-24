@@ -10,6 +10,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+pub struct ParameterUpdate {
+    pub node_id: StableId,
+    pub param: String,
+    pub value: f32,
+}
+
 /// A stateful runner for the DSP graph.
 struct DspRunner {
     nodes: Vec<(StableId, Box<dyn DspNode>)>,
@@ -32,7 +38,7 @@ impl DspRunner {
                 let dsp_node: Box<dyn DspNode> = match name.map(|s| s.as_str()).unwrap_or("Unknown") {
                     "Oscillator" | "Sine" => Box::new(OscillatorNode::new()),
                     "Noise" => Box::new(NoiseNode::new(id.to_string().as_bytes().len() as u64)),
-                    "Gain" => Box::new(GainNode),
+                    "Gain" => Box::new(GainNode::new()),
                     "Add" => Box::new(AddNode),
                     "Multiply" => Box::new(MultiplyNode),
                     "Clip" => Box::new(ClipNode),
@@ -51,8 +57,8 @@ impl DspRunner {
                                     }
                                 };
                                 Box::new(AssetReaderNode::new(Arc::new(samples)))
-                            } else { Box::new(GainNode) }
-                        } else { Box::new(GainNode) }
+                            } else { Box::new(GainNode::new()) }
+                        } else { Box::new(GainNode::new()) }
                     }
                     "Trigger" => Box::new(TriggerNode),
                     "Envelope" | "ADSR" => Box::new(EnvelopeNode::new()),
@@ -61,10 +67,10 @@ impl DspRunner {
                         if let Some(rx) = &midi_rx {
                             Box::new(MidiInNode::new(rx.clone()))
                         } else {
-                            Box::new(GainNode)
+                            Box::new(GainNode::new())
                         }
                     }
-                    _ => Box::new(GainNode),
+                    _ => Box::new(GainNode::new()),
                 };
                 nodes.push((id, dsp_node));
                 
@@ -87,8 +93,6 @@ impl DspRunner {
             for edge in self.graph.edges.values() {
                 if edge.target.node_id == *id {
                     if let Some(ports) = self.node_outputs.get(&edge.source.node_id) {
-                        // Determine source port index. For now, assume port_name maps to index.
-                        // "out" | "0" -> 0, "1" -> 1, "2" -> 2, etc.
                         let port_idx = match edge.source.port_name.as_str() {
                             "out" | "gate" | "0" => 0,
                             "pitch" | "1" => 1,
@@ -118,10 +122,20 @@ impl DspRunner {
 
         final_out
     }
+
+    pub fn update_parameter(&mut self, node_id: StableId, param: &str, value: f32) {
+        for (id, node) in &mut self.nodes {
+            if *id == node_id {
+                node.update_parameter(param, value);
+                break;
+            }
+        }
+    }
 }
 
 pub struct AudioEngine {
     runner_tx: crossbeam_channel::Sender<DspRunner>,
+    param_tx: crossbeam_channel::Sender<ParameterUpdate>,
     midi_rx: crossbeam_channel::Receiver<MidiEvent>,
     crash_flag: Arc<AtomicBool>,
     _midi_conn: Option<midir::MidiInputConnection<()>>,
@@ -137,6 +151,8 @@ impl AudioEngine {
         let channels = config.channels() as usize;
 
         let (midi_tx, midi_rx) = crossbeam_channel::unbounded::<MidiEvent>();
+        let (param_tx, param_rx) = crossbeam_channel::unbounded::<ParameterUpdate>();
+        
         let global_sample_index_atomic = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let gsi_for_midi = global_sample_index_atomic.clone();
 
@@ -181,6 +197,11 @@ impl AudioEngine {
                         return;
                     };
 
+                    // Process Parameter Updates
+                    while let Ok(update) = param_rx.try_recv() {
+                        runner.update_parameter(update.node_id, &update.param, update.value);
+                    }
+
                     for frame in data.chunks_mut(channels) {
                         let ctx = ProcessContext {
                             sample_rate,
@@ -205,11 +226,19 @@ impl AudioEngine {
 
         stream.play()?;
 
-        Ok(Self { runner_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
+        Ok(Self { runner_tx, param_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
     }
 
     pub fn check_crash(&self) -> bool {
         self.crash_flag.swap(false, Ordering::SeqCst)
+    }
+
+    pub fn update_parameter(&self, node_id: StableId, param: &str, value: f32) {
+        let _ = self.param_tx.send(ParameterUpdate {
+            node_id,
+            param: param.to_string(),
+            value,
+        });
     }
 
     pub fn update_graph(&self, graph: Graph) {

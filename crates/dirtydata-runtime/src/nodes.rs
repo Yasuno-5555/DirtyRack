@@ -3,6 +3,39 @@ use rand::prelude::*;
 use rand_pcg::Pcg32;
 use std::sync::Arc;
 
+/// A helper for smoothing parameter changes using a One-Pole LPF.
+pub struct SmoothedValue {
+    current: f32,
+    target: f32,
+    coeff: f32,
+}
+
+impl SmoothedValue {
+    pub fn new(initial: f32, sample_rate: f32, time_constant_ms: f32) -> Self {
+        // a = 1 - exp(-1 / (fs * tau))
+        let tau = time_constant_ms * 0.001;
+        let coeff = 1.0 - (-1.0 / (sample_rate * tau)).exp();
+        Self {
+            current: initial,
+            target: initial,
+            coeff,
+        }
+    }
+
+    pub fn set_target(&mut self, target: f32) {
+        self.target = target;
+    }
+
+    pub fn next(&mut self) -> f32 {
+        self.current += self.coeff * (self.target - self.current);
+        self.current
+    }
+
+    pub fn current(&self) -> f32 {
+        self.current
+    }
+}
+
 /// Contextual information for the current processing sample.
 pub struct ProcessContext {
     pub sample_rate: f32,
@@ -16,6 +49,9 @@ pub trait DspNode: Send + Sync {
     /// inputs: flattened stereo samples [L1, R1, L2, R2, ...]
     /// outputs: slice of stereo pairs [[Lout1, Rout1], [Lout2, Rout2], ...]
     fn process(&mut self, inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, ctx: &ProcessContext);
+
+    /// Update a parameter in real-time.
+    fn update_parameter(&mut self, _param: &str, _value: f32) {}
 }
 
 // ──────────────────────────────────────────────
@@ -24,19 +60,22 @@ pub trait DspNode: Send + Sync {
 
 pub struct OscillatorNode {
     phase: f32,
+    freq_smooth: Option<SmoothedValue>,
 }
 
 impl OscillatorNode {
     pub fn new() -> Self {
-        Self { phase: 0.0 }
+        Self { phase: 0.0, freq_smooth: None }
     }
 }
 
 impl DspNode for OscillatorNode {
     fn process(&mut self, _inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, ctx: &ProcessContext) {
-        let freq = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(440.0) as f32;
+        let freq_target = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(440.0) as f32;
         let wave_type = config.get("waveform").and_then(|v| v.as_string());
         
+        let smooth = self.freq_smooth.get_or_insert_with(|| SmoothedValue::new(freq_target, ctx.sample_rate, 10.0));
+        let freq = smooth.next();
         let phase_inc = freq / ctx.sample_rate;
         
         let val = match wave_type.map(|s| s.as_str()).unwrap_or("sine") {
@@ -56,6 +95,14 @@ impl DspNode for OscillatorNode {
         outputs[0][1] = val;
 
         self.phase = (self.phase + phase_inc) % 1.0;
+    }
+
+    fn update_parameter(&mut self, param: &str, value: f32) {
+        if param == "frequency" {
+            if let Some(s) = &mut self.freq_smooth {
+                s.set_target(value);
+            }
+        }
     }
 }
 
@@ -105,11 +152,22 @@ impl DspNode for AssetReaderNode {
 // §2 — Processors
 // ──────────────────────────────────────────────
 
-pub struct GainNode;
+pub struct GainNode {
+    gain_smooth: Option<SmoothedValue>,
+}
+
+impl GainNode {
+    pub fn new() -> Self {
+        Self { gain_smooth: None }
+    }
+}
 
 impl DspNode for GainNode {
-    fn process(&mut self, inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, _ctx: &ProcessContext) {
-        let gain_db = config.get("gain_db").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+    fn process(&mut self, inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, ctx: &ProcessContext) {
+        let gain_db_target = config.get("gain_db").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+        
+        let smooth = self.gain_smooth.get_or_insert_with(|| SmoothedValue::new(gain_db_target, ctx.sample_rate, 10.0));
+        let gain_db = smooth.next();
         let linear = 10.0_f32.powf(gain_db / 20.0);
         
         if inputs.len() >= 2 {
@@ -117,24 +175,36 @@ impl DspNode for GainNode {
             outputs[0][1] = inputs[1] * linear;
         }
     }
+
+    fn update_parameter(&mut self, param: &str, value: f32) {
+        if param == "gain_db" {
+            if let Some(s) = &mut self.gain_smooth {
+                s.set_target(value);
+            }
+        }
+    }
+}
+
+impl BiquadFilterNode {
+    pub fn new() -> Self {
+        Self { z1: [0.0, 0.0], z2: [0.0, 0.0], freq_smooth: None }
+    }
 }
 
 pub struct BiquadFilterNode {
     z1: [f32; 2],
     z2: [f32; 2],
-}
-
-impl BiquadFilterNode {
-    pub fn new() -> Self {
-        Self { z1: [0.0, 0.0], z2: [0.0, 0.0] }
-    }
+    freq_smooth: Option<SmoothedValue>,
 }
 
 impl DspNode for BiquadFilterNode {
     fn process(&mut self, inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, ctx: &ProcessContext) {
-        let freq = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(1000.0) as f32;
+        let freq_target = config.get("frequency").and_then(|v| v.as_float()).unwrap_or(1000.0) as f32;
         let q = config.get("q").and_then(|v| v.as_float()).unwrap_or(0.707) as f32;
         let filter_type = config.get("type").and_then(|v| v.as_string());
+
+        let smooth = self.freq_smooth.get_or_insert_with(|| SmoothedValue::new(freq_target, ctx.sample_rate, 10.0));
+        let freq = smooth.next();
 
         // Simple RBJ Biquad coefficients
         let w0 = 2.0 * std::f32::consts::PI * freq / ctx.sample_rate;
@@ -175,6 +245,14 @@ impl DspNode for BiquadFilterNode {
             self.z1[i] = ff1 * x - fb1 * y + self.z2[i];
             self.z2[i] = ff2 * x - fb2 * y;
             outputs[0][i] = y;
+        }
+    }
+
+    fn update_parameter(&mut self, param: &str, value: f32) {
+        if param == "frequency" {
+            if let Some(s) = &mut self.freq_smooth {
+                s.set_target(value);
+            }
         }
     }
 }
