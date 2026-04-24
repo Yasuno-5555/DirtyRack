@@ -13,3 +13,4 @@ colored = "3"
 serde_json = { workspace = true }
 notify = "6.1.1"
 dirtydata-runtime = { path = "../dirtydata-runtime" }
+dirtydata-gui = { path = "../dirtydata-gui" }

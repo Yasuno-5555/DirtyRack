@@ -309,6 +309,7 @@ fn make_node(kind: NodeKind, name: &str, channels: u32) -> Node {
         ports,
         config,
         metadata: MetadataRef(None),
+        confidence: ConfidenceScore::Verified,
     }
 }
 
@@ -333,7 +334,15 @@ fn resolve_name(
         .collect();
 
     match matches.len() {
-        0 => Err(ActionError::NodeNotFound(name.into())),
+        0 => {
+            // Fallback: Check if the "name" is actually a StableId string
+            if let Ok(id) = name.parse::<StableId>() {
+                if graph.nodes.contains_key(&id) {
+                    return Ok(id);
+                }
+            }
+            Err(ActionError::NodeNotFound(name.into()))
+        }
         1 => Ok(matches[0]),
         _ => Err(ActionError::AmbiguousName(name.into())),
     }

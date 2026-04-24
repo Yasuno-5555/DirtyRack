@@ -90,6 +90,9 @@ enum Commands {
         #[command(subcommand)]
         format: ExportCommands,
     },
+
+    /// Launch the graphical projector (GUI)
+    Gui,
 }
 
 #[derive(Subcommand)]
@@ -183,6 +186,11 @@ fn main() {
             ExportCommands::Dsl { output } => cmd_export_dsl(output),
             ExportCommands::Json { output } => cmd_export_json(output),
         },
+        Commands::Gui => {
+            println!("{} Launching DirtyData GUI Projector...", "▶".blue().bold());
+            dirtydata_gui::run_gui().unwrap();
+            Ok(())
+        }
     };
 
     if let Err(e) = result {

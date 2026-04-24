@@ -23,6 +23,7 @@ pub struct Node {
     pub ports: Vec<TypedPort>,
     pub config: ConfigSnapshot,
     pub metadata: MetadataRef,
+    pub confidence: ConfidenceScore,
 }
 
 impl Node {
@@ -51,6 +52,7 @@ impl Node {
                 c
             },
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         }
     }
 
@@ -71,6 +73,7 @@ impl Node {
                 c
             },
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         }
     }
 
@@ -91,6 +94,7 @@ impl Node {
                 c
             },
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         }
     }
 }

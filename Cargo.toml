@@ -6,6 +6,7 @@ members = [
     "crates/dirtydata-host",
     "crates/dirtydata-intent",
     "crates/dirtydata-cli",
+    "crates/dirtydata-gui",
 ]
 resolver = "2"
 

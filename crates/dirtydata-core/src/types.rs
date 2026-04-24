@@ -36,6 +36,14 @@ impl fmt::Display for StableId {
     }
 }
 
+impl std::str::FromStr for StableId {
+    type Err = ulid::DecodeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(ulid::Ulid::from_string(s)?))
+    }
+}
+
 /// Patch identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PatchId(pub ulid::Ulid);
@@ -73,6 +81,14 @@ impl IntentId {
 impl fmt::Display for IntentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for IntentId {
+    type Err = ulid::DecodeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(ulid::Ulid::from_string(s)?))
     }
 }
 
@@ -209,6 +225,15 @@ pub enum ConfigValue {
     String(String),
     List(Vec<ConfigValue>),
     Map(BTreeMap<String, ConfigValue>),
+}
+
+impl ConfigValue {
+    pub fn as_string(&self) -> Option<&String> {
+        match self {
+            ConfigValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 /// Immutable snapshot of a node's configuration.
