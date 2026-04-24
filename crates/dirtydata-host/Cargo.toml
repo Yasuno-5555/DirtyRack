@@ -1,0 +1,10 @@
+[package]
+name = "dirtydata-host"
+description = "Plugin Sandbox / Foreign Boundary — stub"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytemuck = "1.14"
+thiserror = "1.0"
+dirtydata-core = { path = "../dirtydata-core" }

@@ -1,0 +1,8 @@
+{
+  "description": "Add vocal track with hash",
+  "actions": [
+    { "action": "add_source", "name": "VocalWav" },
+    { "action": "set_config", "node": "VocalWav", "key": "file", "value": "vocal.wav" },
+    { "action": "set_config", "node": "VocalWav", "key": "expected_hash", "value": "invalid_hash_to_trigger_mismatch_later00000000000000000000000000" }
+  ]
+}

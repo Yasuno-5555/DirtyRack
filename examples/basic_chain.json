@@ -1,0 +1,15 @@
+{
+  "description": "Basic signal chain: Sine → Gain → Output",
+  "intent": "Clean monitoring path",
+  "constraints": [
+    { "type": "must", "description": "preserve transient punch" },
+    { "type": "avoid", "description": "harsh sibilance" }
+  ],
+  "actions": [
+    { "action": "add_source", "name": "Sine" },
+    { "action": "add_processor", "name": "Gain" },
+    { "action": "add_sink", "name": "Output" },
+    { "action": "connect", "from": "Sine", "to": "Gain" },
+    { "action": "connect", "from": "Gain", "to": "Output" }
+  ]
+}

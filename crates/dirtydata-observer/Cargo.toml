@@ -1,0 +1,10 @@
+[package]
+name = "dirtydata-observer"
+description = "Provenance Engine — stub"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dirtydata-core = { path = "../dirtydata-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }

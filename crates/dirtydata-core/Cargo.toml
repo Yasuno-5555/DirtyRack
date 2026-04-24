@@ -1,0 +1,15 @@
+[package]
+name = "dirtydata-core"
+description = "Canonical IR / Patch Engine — the heart of DirtyData"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ulid = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

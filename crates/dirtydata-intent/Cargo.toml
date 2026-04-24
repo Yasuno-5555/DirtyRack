@@ -1,0 +1,11 @@
+[package]
+name = "dirtydata-intent"
+description = "Intent Bridge / AI Layer — stub"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dirtydata-core = { path = "../dirtydata-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ulid = { workspace = true }

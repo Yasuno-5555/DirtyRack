@@ -1,0 +1,11 @@
+[package]
+name = "dirtydata-runtime"
+description = "Execution Scheduler / Domain Isolation — stub"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dirtydata-core = { path = "../dirtydata-core" }
+cpal = "0.15.2"
+arc-swap = "1.6.0"
+dirtydata-host = { path = "../dirtydata-host" }

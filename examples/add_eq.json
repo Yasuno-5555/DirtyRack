@@ -1,0 +1,16 @@
+{
+  "description": "Add EQ with presence boost",
+  "intent": "Vocal presence up",
+  "constraints": [
+    { "type": "must", "description": "preserve intimacy" },
+    { "type": "prefer", "description": "wider stereo image" },
+    { "type": "avoid", "description": "harsh sibilance" },
+    { "type": "never", "description": "destroy transient punch" }
+  ],
+  "actions": [
+    { "action": "add_processor", "name": "EQ" },
+    { "action": "set_config", "node": "EQ", "key": "band_1_freq", "value": 3000 },
+    { "action": "set_config", "node": "EQ", "key": "band_1_gain", "value": 2.0 },
+    { "action": "set_config", "node": "EQ", "key": "band_1_q", "value": 1.5 }
+  ]
+}

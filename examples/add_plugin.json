@@ -1,0 +1,20 @@
+{
+  "description": "Add unstable plugin",
+  "actions": [
+    {
+      "action": "add_foreign",
+      "name": "vst_nan_tester",
+      "plugin": "vst_nan"
+    },
+    {
+      "action": "connect",
+      "from": "Sine",
+      "to": "vst_nan_tester"
+    },
+    {
+      "action": "connect",
+      "from": "vst_nan_tester",
+      "to": "Output"
+    }
+  ]
+}
