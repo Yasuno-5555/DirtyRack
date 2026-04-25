@@ -443,6 +443,49 @@ impl DspNode for EnvelopeNode {
     }
 }
 
+pub struct SequencerNode {
+    last_step_idx: i32,
+}
+
+impl SequencerNode {
+    pub fn new() -> Self {
+        Self { last_step_idx: -1 }
+    }
+}
+
+impl DspNode for SequencerNode {
+    fn process(&mut self, _inputs: &[f32], outputs: &mut [[f32; 2]], config: &ConfigSnapshot, ctx: &ProcessContext) {
+        let bpm = config.get("bpm").and_then(|v| v.as_float()).unwrap_or(120.0) as f32;
+        let steps_data = config.get("steps").and_then(|v| v.as_list());
+        
+        let samples_per_step = (60.0 / (bpm * 4.0)) * ctx.sample_rate;
+        let current_step_idx = ((ctx.global_sample_index as f32 / samples_per_step) as i32) % 16;
+        
+        outputs[0] = [0.0, 0.0];
+
+        if current_step_idx != self.last_step_idx {
+            // Step boundary!
+            if let Some(steps) = steps_data {
+                let step = &steps[current_step_idx as usize];
+                if let Some(note_val) = step.as_float() {
+                    // Simple protocol: L=1.0 (NoteOn), R=(Note<<8 | Velocity)
+                    // For now, velocity is fixed at 100
+                    let note = note_val as u32;
+                    let vel = 100u32;
+                    outputs[0][0] = 1.0; // NoteOn
+                    outputs[0][1] = ((note << 8) | vel) as f32;
+                } else {
+                    // NoteOff if the previous step had a note?
+                    // For now, let's just send NoteOff for ALL notes if step is empty
+                    // Or more precisely, we need to track what note we started.
+                    outputs[0][0] = 2.0; // NoteOff (All or specific)
+                }
+            }
+            self.last_step_idx = current_step_idx;
+        }
+    }
+}
+
 pub struct AutomationNode;
 
 impl DspNode for AutomationNode {

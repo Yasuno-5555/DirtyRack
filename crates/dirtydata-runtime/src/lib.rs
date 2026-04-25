@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dirtydata_core::ir::Graph;
 use dirtydata_core::types::{StableId, NodeKind};
 use dirtydata_core::{graph_utils, ConfigSnapshot};
-use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext, MidiInNode, MidiEvent};
+use crate::nodes::{DspNode, OscillatorNode, GainNode, AddNode, MultiplyNode, NoiseNode, ClipNode, BiquadFilterNode, DelayNode, AssetReaderNode, TriggerNode, EnvelopeNode, AutomationNode, ProcessContext, MidiInNode, MidiEvent, SequencerNode};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -67,6 +67,7 @@ impl DspRunner {
                     }
                     "Trigger" => Box::new(TriggerNode),
                     "Envelope" | "ADSR" => Box::new(EnvelopeNode::new()),
+                    "Sequencer" => Box::new(SequencerNode::new()),
                     "Automation" => Box::new(AutomationNode),
                     "MidiIn" => {
                         if let Some(rx) = &midi_rx {
@@ -176,10 +177,24 @@ impl VoiceStackNode {
 }
 
 impl DspNode for VoiceStackNode {
-    fn process(&mut self, _inputs: &[f32], outputs: &mut [[f32; 2]], _config: &ConfigSnapshot, ctx: &ProcessContext) {
-        // Broadcast global inputs to all voices (port 0 of VoiceStack -> global param)
-        // For simplicity, we just pass external inputs to each voice runner.
-        
+    fn process(&mut self, inputs: &[f32], outputs: &mut [[f32; 2]], _config: &ConfigSnapshot, ctx: &ProcessContext) {
+        // Decode CV-Command Protocol from Port 0
+        if inputs.len() >= 2 {
+            let cmd = inputs[0].round();
+            let data = inputs[1].round() as u32;
+            
+            if cmd == 1.0 {
+                // Note On
+                let note = (data >> 8) as u8;
+                let vel = (data & 0xFF) as u8;
+                self.update_parameter("note_on", ((vel as u32) << 8 | (note as u32)) as f32);
+            } else if cmd == 2.0 {
+                // Note Off (Simplification: note info might be in data)
+                let note = (data >> 8) as u8;
+                self.update_parameter("note_off", note as f32);
+            }
+        }
+
         // Sum outputs
         outputs[0] = [0.0, 0.0];
 
