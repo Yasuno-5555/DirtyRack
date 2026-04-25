@@ -84,6 +84,25 @@ cargo run --bin dirtydata-cli -- patch apply examples/basic_chain.json
 cargo run --bin dirtydata-cli -- patch apply examples/add_eq.json
 ```
 
+## Quick Start
+
+プロジェクトの初期化と GUI の起動を自動で行うスクリプトを用意しました。
+
+### macOS / Linux
+```bash
+./run.sh
+```
+
+### Windows
+```batch
+run.bat
+```
+
+または CLI を直接使用する場合：
+```bash
+cargo run -p dirtydata-cli -- gui
+```
+
 ### ブランチを使った実験
 
 音のバリエーションを試すために、ブランチを切って実験します。
