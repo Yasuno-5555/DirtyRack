@@ -20,10 +20,25 @@ pub struct ParameterUpdate {
 pub mod offline;
 pub use offline::OfflineRenderer;
 use crate::nodes::{NodeState};
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 pub enum EngineCommand {
     UpdateParameter(ParameterUpdate),
     ReplaceGraph(Graph),
+}
+
+pub struct SharedState {
+    pub node_levels: Arc<dashmap::DashMap<StableId, f32>>,
+    pub scope_buffer: Arc<crossbeam_queue::ArrayQueue<f32>>,
+}
+
+impl SharedState {
+    pub fn new() -> Self {
+        Self {
+            node_levels: Arc::new(dashmap::DashMap::new()),
+            scope_buffer: Arc::new(crossbeam_queue::ArrayQueue::new(1024)),
+        }
+    }
 }
 
 /// A stateful runner for the DSP graph.
@@ -295,6 +310,7 @@ impl DspNode for VoiceStackNode {
 pub struct AudioEngine {
     command_tx: crossbeam_channel::Sender<EngineCommand>,
     midi_rx: crossbeam_channel::Receiver<MidiEvent>,
+    shared_state: Arc<SharedState>,
     crash_flag: Arc<AtomicBool>,
     _midi_conn: Option<midir::MidiInputConnection<()>>,
     _stream: cpal::Stream,
@@ -311,6 +327,9 @@ impl AudioEngine {
         let (midi_tx, midi_rx) = crossbeam_channel::unbounded::<MidiEvent>();
         let (command_tx, command_rx) = crossbeam_channel::unbounded::<EngineCommand>();
         let _ = command_tx.send(EngineCommand::ReplaceGraph(initial_graph));
+        
+        let shared_state = Arc::new(SharedState::new());
+        let shared_state_for_audio = shared_state.clone();
         
         let global_sample_index_atomic = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let gsi_for_midi = global_sample_index_atomic.clone();
@@ -376,6 +395,14 @@ impl AudioEngine {
                         };
                         
                         let out = runner.process_sample(&ctx);
+                        
+                        // Instrumentation: Metering & Scope
+                        if let Some((sink_id, _)) = runner.nodes.first() { // Simplification: use first node as proxy
+                            let val = out[0]; // Left channel
+                            shared_state_for_audio.node_levels.insert(*sink_id, val.abs());
+                            let _ = shared_state_for_audio.scope_buffer.push(val);
+                        }
+
                         for (i, val) in out.iter().enumerate() {
                             if i < frame.len() {
                                 frame[i] = *val;
@@ -393,7 +420,7 @@ impl AudioEngine {
 
         stream.play()?;
 
-        Ok(Self { command_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
+        Ok(Self { command_tx, midi_rx, shared_state, crash_flag, _midi_conn, _stream: stream })
     }
 
     pub fn check_crash(&self) -> bool {
@@ -410,6 +437,10 @@ impl AudioEngine {
 
     pub fn update_graph(&self, graph: Graph) {
         let _ = self.command_tx.send(EngineCommand::ReplaceGraph(graph));
+    }
+
+    pub fn shared_state(&self) -> Arc<SharedState> {
+        self.shared_state.clone()
     }
 }
 

@@ -63,6 +63,7 @@ impl Default for UiLayout {
 }
 
 pub mod app;
+pub mod editor;
 
 pub fn run_gui() -> eframe::Result<()> {
     let cwd = std::env::current_dir().expect("failed to get current dir");
@@ -75,7 +76,7 @@ pub fn run_gui() -> eframe::Result<()> {
         Graph::default()
     };
 
-    let shadow_graph = Arc::new(ArcSwap::from_pointee(initial_graph));
+    let shadow_graph = Arc::new(ArcSwap::from_pointee(initial_graph.clone()));
     let shadow_graph_clone = shadow_graph.clone();
 
     let layout = UiLayout::load(&cwd);
@@ -106,10 +107,13 @@ pub fn run_gui() -> eframe::Result<()> {
         let _ = _watcher.watch(parent, RecursiveMode::NonRecursive);
     }
 
+    let engine = Arc::new(dirtydata_runtime::AudioEngine::new(initial_graph.clone()).expect("failed to start engine"));
+    let shared_state = Some(engine.shared_state());
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
-            .with_title("DirtyData - The Silent Projector"),
+            .with_title("DirtyData - The Workbench"),
         ..Default::default()
     };
 
@@ -119,7 +123,7 @@ pub fn run_gui() -> eframe::Result<()> {
         Box::new(|_cc| {
             // Leak watcher to keep it running
             Box::leak(Box::new(_watcher));
-            Ok(Box::new(app::DirtyDataApp::new(shadow_graph, action_tx, layout)))
+            Ok(Box::new(app::DirtyDataApp::new(shadow_graph, action_tx, layout, shared_state)))
         }),
     )
 }
