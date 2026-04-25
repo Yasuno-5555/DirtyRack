@@ -18,8 +18,13 @@ pub struct ParameterUpdate {
 }
 
 pub mod offline;
-
 pub use offline::OfflineRenderer;
+use crate::nodes::{NodeState};
+
+pub enum EngineCommand {
+    UpdateParameter(ParameterUpdate),
+    ReplaceGraph(Graph),
+}
 
 /// A stateful runner for the DSP graph.
 pub(crate) struct DspRunner {
@@ -148,6 +153,22 @@ impl DspRunner {
             node.update_parameter(param, value);
         }
     }
+
+    pub fn extract_all_states(&self) -> HashMap<StableId, NodeState> {
+        let mut states = HashMap::new();
+        for (id, node) in &self.nodes {
+            states.insert(*id, node.extract_state());
+        }
+        states
+    }
+
+    pub fn inject_all_states(&mut self, states: &HashMap<StableId, NodeState>) {
+        for (id, node) in &mut self.nodes {
+            if let Some(state) = states.get(id) {
+                node.inject_state(state);
+            }
+        }
+    }
 }
 
 struct VoiceSlot {
@@ -272,8 +293,7 @@ impl DspNode for VoiceStackNode {
 }
 
 pub struct AudioEngine {
-    runner_tx: crossbeam_channel::Sender<DspRunner>,
-    param_tx: crossbeam_channel::Sender<ParameterUpdate>,
+    command_tx: crossbeam_channel::Sender<EngineCommand>,
     midi_rx: crossbeam_channel::Receiver<MidiEvent>,
     crash_flag: Arc<AtomicBool>,
     _midi_conn: Option<midir::MidiInputConnection<()>>,
@@ -289,7 +309,8 @@ impl AudioEngine {
         let channels = config.channels() as usize;
 
         let (midi_tx, midi_rx) = crossbeam_channel::unbounded::<MidiEvent>();
-        let (param_tx, param_rx) = crossbeam_channel::unbounded::<ParameterUpdate>();
+        let (command_tx, command_rx) = crossbeam_channel::unbounded::<EngineCommand>();
+        let _ = command_tx.send(EngineCommand::ReplaceGraph(initial_graph));
         
         let global_sample_index_atomic = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let gsi_for_midi = global_sample_index_atomic.clone();
@@ -314,31 +335,39 @@ impl AudioEngine {
             None
         };
 
-        let (runner_tx, runner_rx) = crossbeam_channel::bounded::<DspRunner>(1);
-        let _ = runner_tx.send(DspRunner::new(initial_graph, Some(midi_rx.clone())));
-        
-        let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+        let _err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
         let mut current_runner: Option<DspRunner> = None;
         let mut global_sample_index: u64 = 0;
+        let midi_rx_internal = midi_rx.clone();
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 &config.into(),
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    if let Ok(new_runner) = runner_rx.try_recv() {
-                        current_runner = Some(new_runner);
+                    // Process Engine Commands
+                    while let Ok(cmd) = command_rx.try_recv() {
+                        match cmd {
+                            EngineCommand::UpdateParameter(update) => {
+                                if let Some(runner) = &mut current_runner {
+                                    runner.update_parameter(update.node_id, &update.param, update.value);
+                                }
+                            }
+                            EngineCommand::ReplaceGraph(graph) => {
+                                let mut new_runner = DspRunner::new(graph, Some(midi_rx_internal.clone()));
+                                if let Some(old_runner) = &current_runner {
+                                    let states = old_runner.extract_all_states();
+                                    new_runner.inject_all_states(&states);
+                                }
+                                current_runner = Some(new_runner);
+                            }
+                        }
                     }
 
                     let Some(runner) = &mut current_runner else {
                         data.fill(0.0);
                         return;
                     };
-
-                    // Process Parameter Updates
-                    while let Ok(update) = param_rx.try_recv() {
-                        runner.update_parameter(update.node_id, &update.param, update.value);
-                    }
 
                     for frame in data.chunks_mut(channels) {
                         let ctx = ProcessContext {
@@ -356,7 +385,7 @@ impl AudioEngine {
                         global_sample_index_atomic.store(global_sample_index, Ordering::Relaxed);
                     }
                 },
-                err_fn,
+                _err_fn,
                 None,
             )?,
             _ => return Err("Unsupported sample format".into()),
@@ -364,7 +393,7 @@ impl AudioEngine {
 
         stream.play()?;
 
-        Ok(Self { runner_tx, param_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
+        Ok(Self { command_tx, midi_rx, crash_flag, _midi_conn, _stream: stream })
     }
 
     pub fn check_crash(&self) -> bool {
@@ -372,15 +401,15 @@ impl AudioEngine {
     }
 
     pub fn update_parameter(&self, node_id: StableId, param: &str, value: f32) {
-        let _ = self.param_tx.send(ParameterUpdate {
+        let _ = self.command_tx.send(EngineCommand::UpdateParameter(ParameterUpdate {
             node_id,
             param: param.to_string(),
             value,
-        });
+        }));
     }
 
     pub fn update_graph(&self, graph: Graph) {
-        let _ = self.runner_tx.send(DspRunner::new(graph, Some(self.midi_rx.clone())));
+        let _ = self.command_tx.send(EngineCommand::ReplaceGraph(graph));
     }
 }
 

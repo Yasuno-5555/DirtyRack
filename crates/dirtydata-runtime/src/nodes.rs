@@ -42,8 +42,13 @@ pub struct ProcessContext {
     pub global_sample_index: u64,
 }
 
-/// The fundamental trait for a DSP node.
-/// Operates in the Sample Domain (one stereo sample at a time).
+#[derive(Debug, Clone)]
+pub enum NodeState {
+    Empty,
+    Oscillator { phase: f32 },
+    Envelope { state_raw: u8, level: f32 },
+}
+
 pub trait DspNode: Send + Sync {
     /// Process one stereo sample.
     /// inputs: flattened stereo samples [L1, R1, L2, R2, ...]
@@ -52,6 +57,9 @@ pub trait DspNode: Send + Sync {
 
     /// Update a parameter in real-time.
     fn update_parameter(&mut self, _param: &str, _value: f32) {}
+
+    fn extract_state(&self) -> NodeState { NodeState::Empty }
+    fn inject_state(&mut self, _state: &NodeState) {}
 }
 
 // ──────────────────────────────────────────────
@@ -102,6 +110,16 @@ impl DspNode for OscillatorNode {
             if let Some(s) = &mut self.freq_smooth {
                 s.set_target(value);
             }
+        }
+    }
+
+    fn extract_state(&self) -> NodeState {
+        NodeState::Oscillator { phase: self.phase }
+    }
+
+    fn inject_state(&mut self, state: &NodeState) {
+        if let NodeState::Oscillator { phase } = state {
+            self.phase = *phase;
         }
     }
 }
@@ -439,6 +457,28 @@ impl DspNode for EnvelopeNode {
     fn update_parameter(&mut self, param: &str, _value: f32) {
         if param == "steal" {
             self.state = EnvState::FastRelease;
+        }
+    }
+
+    fn extract_state(&self) -> NodeState {
+        NodeState::Envelope { 
+            state_raw: self.state as u8, 
+            level: self.level 
+        }
+    }
+
+    fn inject_state(&mut self, state: &NodeState) {
+        if let NodeState::Envelope { state_raw, level } = state {
+            self.state = match *state_raw {
+                0 => EnvState::Idle,
+                1 => EnvState::Attack,
+                2 => EnvState::Decay,
+                3 => EnvState::Sustain,
+                4 => EnvState::Release,
+                5 => EnvState::FastRelease,
+                _ => EnvState::Idle,
+            };
+            self.level = *level;
         }
     }
 }
