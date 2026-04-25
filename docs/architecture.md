@@ -54,6 +54,35 @@ DirtyData は、Git にインスパイアされたブランチ管理システム
 - **Cosmetic vs Semantic**: ノードの座標やズーム位置は `ui_layout.json` (Cosmetic State) に保存され、Core の IR には一切影響を与えません。一方、ノード接続は `UserAction` としてパッチ化され、Core の真実へと昇格します。
 - **Semantic Projections**: `Intent Zones` による意図のグループ化や、`Confidence Score` に基づくノードの明滅（Glitch エフェクト）により、数値以上の「システムの状態」を伝えます。
 
+## 7. The VoiceStack (Polyphony)
+
+DirtyData は、単音（モノフォニック）の制限を超え、動的なポリフォニーを実現します。
+
+- **`VoiceStackNode`**: 内部にサブグラフを持ち、指定されたボイス数（初期実装は 8 ボイス）だけ DSP ランナーを複製します。
+- **Global vs Per-Voice**: 外部（Global）からの信号は全ボイスにブロードキャストされますが、ノートオンなどのコマンドはボイス・アロケーターによって特定のボイス・インスタンスへ振り分けられます。
+
+## 8. The Conductor (Sequencer & CV-Command)
+
+DirtyData のシーケンサーは、単なる MIDI 演奏ではなく「時間軸の決定論的制御」を司ります。
+
+- **CV-Command Protocol**: オーディオ信号の中にコマンドを埋め込むプロトコル。
+    - **Left Channel**: コマンドコード（NoteOn/Off 等）。
+    - **Right Channel**: ペイロード（ノート番号、ベロシティ等）。
+- この「オーディオとしてのコマンド」により、Delay ノードを通せば演奏が正確に遅れ、LFO で揺らせばノートが揺らぐといった、音響信号と演奏情報の境界を失わせる実験が可能です。
+
+## 9. State Preservation (Inception-style Hot-swapping)
+
+グラフのホットスワップ時、オシレーターの位相やエンベロープの状態がリセットされることを防ぎます。
+
+- **`extract_state()` / `inject_state()`**: 新旧のグラフ間で `StableId` が一致するノードに対し、内部の動的な状態（位相、現在のレベル等）を抽出し、新しいインスタンスへ注入します。
+- これにより、演奏中であっても音の連続性を保ったまま（Zero-Glitch）、ノード構成やパラメータの「因果」を書き換えることが可能です。
+
+## 10. The Workbench (Shared Visualization)
+
+オーディオエンジン（Audio Thread）と GUI（Main Thread）を繋ぐ高速な監視ブリッジです。
+
+- **Lock-free Shared State**: `DashMap` (Atomic Meters) と SPSC RingBuffer (Oscilloscope) を使用し、GUI がオーディオスレッドの優先度を妨げることなく、リアルタイムな波形とピーク値を覗き見（Projection）することを可能にします。
+
 ## クレートの依存関係
 
 ```mermaid
@@ -65,7 +94,7 @@ graph TD
     CLI --> GUI[dirtydata-gui]
     
     GUI --> Core
-    GUI --> Crossbeam[crossbeam-channel]
+    GUI --> Runtime
     
     Runtime --> Core
     Runtime --> Host[dirtydata-host]
