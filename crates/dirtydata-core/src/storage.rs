@@ -245,14 +245,14 @@ impl Storage {
     pub fn load_patch_ancestry(&self, tip: PatchId) -> Result<Vec<Patch>, StorageError> {
         let mut ancestry = Vec::new();
         let mut current = Some(tip);
-        
+
         while let Some(id) = current {
             let patch = self.load_patch(&id)?;
             // Simple linear history assumption for now (take first parent)
             current = patch.parents.first().copied();
             ancestry.push(patch);
         }
-        
+
         // Reverse to get chronological order
         ancestry.reverse();
         Ok(ancestry)

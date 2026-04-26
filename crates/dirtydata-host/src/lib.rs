@@ -11,6 +11,15 @@ pub enum HostError {
     NanStorm,
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum HostCommand {
+    Process = 0,
+    SetParameter = 1,
+    GetState = 2,
+    SetState = 3,
+}
+
 pub struct PluginHost {
     child: Child,
     fallback_buffer: Vec<f32>,
@@ -18,10 +27,6 @@ pub struct PluginHost {
 
 impl PluginHost {
     pub fn new(plugin_name: &str, buffer_size: usize) -> Result<Self, HostError> {
-        // For MVP, we run a dummy worker binary that we will build alongside.
-        // We assume it's in the same target dir or path. 
-        // For testing, we just invoke `dirtydata-plugin-worker`.
-        
         let exe = std::env::current_exe().unwrap_or_default();
         let dir = exe.parent().unwrap_or(std::path::Path::new("."));
         let worker_path = dir.join("dirtydata-plugin-worker");
@@ -38,11 +43,29 @@ impl PluginHost {
         })
     }
 
-    /// Process a block of audio. 
-    /// If the plugin crashes or produces NaN, returns HostError so parent can fallback.
+    pub fn set_parameter(&mut self, param_id: u32, value: f32) -> Result<(), HostError> {
+        let mut stdin = self.child.stdin.as_ref().ok_or(HostError::Crashed)?;
+
+        let cmd = HostCommand::SetParameter as u8;
+        stdin.write_all(&[cmd])?;
+        stdin.write_all(&param_id.to_le_bytes())?;
+        stdin.write_all(&value.to_le_bytes())?;
+        stdin.flush()?;
+
+        Ok(())
+    }
+
     pub fn process(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), HostError> {
         let mut stdin = self.child.stdin.as_ref().ok_or(HostError::Crashed)?;
         let mut stdout = self.child.stdout.as_mut().ok_or(HostError::Crashed)?;
+
+        // Send Command
+        let cmd = HostCommand::Process as u8;
+        stdin.write_all(&[cmd])?;
+
+        // Send size (u32)
+        let size = (input.len() as u32);
+        stdin.write_all(&size.to_le_bytes())?;
 
         // Write input buffer as bytes
         let in_bytes = bytemuck::cast_slice(input);
@@ -66,7 +89,7 @@ impl PluginHost {
             }
         }
 
-        // Update fallback buffer to latest valid output
+        // Update fallback buffer
         if self.fallback_buffer.len() != output.len() {
             self.fallback_buffer.resize(output.len(), 0.0);
         }

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::ir::{Edge, Graph, Node};
 use crate::patch::Operation;
 use crate::types::*;
+use crate::types::{ConfigDelta, StableId};
 
 /// User-facing action — what humans write.
 /// Internal operations are derived from these.
@@ -76,9 +77,10 @@ pub enum UserAction {
     },
 
     /// Remove a node by name.
-    RemoveNode {
-        name: String,
-    },
+    RemoveNode { name: String },
+
+    /// Freeze a node into an asset.
+    FreezeNode { name: String, length_secs: f32 },
 
     /// Set a config value on a node.
     SetConfig {
@@ -86,6 +88,27 @@ pub enum UserAction {
         key: String,
         value: serde_json::Value,
     },
+
+    /// Add a modulation assignment (§5.3).
+    AddModulation {
+        source_node: String,
+        source_port: String,
+        target_node: String,
+        target_param: String,
+        amount: f32,
+    },
+
+    /// Replace a node with another kind, preserving connections if possible.
+    ReplaceNode { name: String, new_kind_name: String },
+
+    /// Add a container node.
+    AddSubGraph { name: String },
+
+    /// Remove a modulation assignment.
+    RemoveModulation { id: StableId },
+
+    /// Duplicate a node (Placeholder for GUI).
+    DuplicateNode { node_id: StableId },
 }
 
 fn default_channels() -> u32 {
@@ -170,7 +193,11 @@ pub fn compile_actions(
                 ops.push(Operation::AddNode(node));
             }
 
-            UserAction::AddForeign { name, plugin, channels } => {
+            UserAction::AddForeign {
+                name,
+                plugin,
+                channels,
+            } => {
                 let node = make_node(NodeKind::Foreign(plugin.clone()), name, *channels);
                 created.insert(name.clone(), node.id);
                 ops.push(Operation::AddNode(node));
@@ -233,6 +260,13 @@ pub fn compile_actions(
                 ops.push(Operation::RemoveNode(id));
             }
 
+            UserAction::FreezeNode { name, .. } => {
+                let _id = resolve_name(name, graph, &created)?;
+                // NOTE: Freezing requires offline rendering which isn't available here.
+                // In a full implementation, this might return a placeholder op or
+                // be handled by the caller (CLI/GUI) which has access to the renderer.
+            }
+
             UserAction::SetConfig { node, key, value } => {
                 let id = resolve_name(node, graph, &created)?;
                 let config_val = json_to_config_value(value)
@@ -246,10 +280,58 @@ pub fn compile_actions(
                         new: Some(config_val),
                     },
                 );
-                ops.push(Operation::ModifyConfig {
-                    node_id: id,
-                    delta,
-                });
+                ops.push(Operation::ModifyConfig { node_id: id, delta });
+            }
+
+            UserAction::AddModulation {
+                source_node,
+                source_port,
+                target_node,
+                target_param,
+                amount,
+            } => {
+                let src_id = resolve_name(source_node, graph, &created)?;
+                let tgt_id = resolve_name(target_node, graph, &created)?;
+                let mod_ir = crate::ir::Modulation::new(
+                    PortRef {
+                        node_id: src_id,
+                        port_name: source_port.clone(),
+                    },
+                    tgt_id,
+                    target_param.clone(),
+                    *amount,
+                );
+                ops.push(Operation::AddModulation(mod_ir));
+            }
+
+            UserAction::ReplaceNode {
+                name,
+                new_kind_name,
+            } => {
+                let id = resolve_name(name, graph, &created)?;
+                let mut delta = std::collections::BTreeMap::new();
+                delta.insert(
+                    "name".to_string(),
+                    ConfigChange {
+                        old: None,
+                        new: Some(ConfigValue::String(new_kind_name.clone())),
+                    },
+                );
+                ops.push(Operation::ModifyConfig { node_id: id, delta });
+            }
+
+            UserAction::AddSubGraph { name } => {
+                let node = crate::ir::Node::new_subgraph(name);
+                created.insert(name.clone(), node.id);
+                ops.push(Operation::AddNode(node));
+            }
+
+            UserAction::RemoveModulation { id } => {
+                ops.push(Operation::RemoveModulation(*id));
+            }
+
+            UserAction::DuplicateNode { .. } => {
+                // Placeholder
             }
         }
     }

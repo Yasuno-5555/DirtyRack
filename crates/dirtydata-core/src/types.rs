@@ -54,6 +54,12 @@ impl PatchId {
     }
 }
 
+impl Default for PatchId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl fmt::Display for PatchId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -75,6 +81,12 @@ pub struct IntentId(pub ulid::Ulid);
 impl IntentId {
     pub fn new() -> Self {
         Self(ulid::Ulid::new())
+    }
+}
+
+impl Default for IntentId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -163,6 +175,12 @@ pub enum NodeKind {
     Foreign(String),
     /// Intent node — §3.1.
     Intent,
+    /// Nested container node.
+    SubGraph,
+    /// Bridge node: Input from parent graph into subgraph.
+    InputProxy,
+    /// Bridge node: Output from subgraph back to parent.
+    OutputProxy,
     /// Metadata carrier node.
     Metadata,
     /// Trust boundary marker — §8/§13.
@@ -248,6 +266,13 @@ impl ConfigValue {
             _ => None,
         }
     }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
 }
 
 /// Immutable snapshot of a node's configuration.
@@ -273,7 +298,7 @@ pub struct MetadataRef(pub Option<StableId>);
 pub struct EdgeDelta {
     pub source: Option<PortRef>,
     pub target: Option<PortRef>,
-    pub causality: Option<bool>,
+    pub kind: Option<crate::ir::EdgeKind>,
 }
 
 // ──────────────────────────────────────────────
@@ -337,6 +362,8 @@ pub enum IntentStatus {
     Proposal,
     /// Committed — attached to patches.
     Attached,
+    /// Attached and satisfied.
+    Resolved,
     /// Explicitly discarded.
     Discarded,
     /// Kept for exploration.

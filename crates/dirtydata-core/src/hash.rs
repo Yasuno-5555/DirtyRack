@@ -52,6 +52,10 @@ fn hash_operation(hasher: &mut Hasher, op: &Operation) {
             hasher.update(b"op:remove_node:");
             hasher.update(id.0.to_string().as_bytes());
         }
+        Operation::ReplaceNode(node) => {
+            hasher.update(b"op:replace_node:");
+            hash_node(hasher, node);
+        }
         Operation::ModifyConfig { node_id, delta } => {
             hasher.update(b"op:modify_config:");
             hasher.update(node_id.0.to_string().as_bytes());
@@ -73,6 +77,14 @@ fn hash_operation(hasher: &mut Hasher, op: &Operation) {
             hasher.update(edge_id.0.to_string().as_bytes());
             let json = serde_json::to_string(delta).unwrap_or_default();
             hasher.update(json.as_bytes());
+        }
+        Operation::AddModulation(m) => {
+            hasher.update(b"op:add_modulation:");
+            hash_modulation(hasher, m);
+        }
+        Operation::RemoveModulation(id) => {
+            hasher.update(b"op:remove_modulation:");
+            hasher.update(id.0.to_string().as_bytes());
         }
     }
 }
@@ -115,7 +127,20 @@ fn hash_edge(hasher: &mut Hasher, edge: &Edge) {
     hasher.update(edge.target.node_id.0.to_string().as_bytes());
     hasher.update(b":");
     hasher.update(edge.target.port_name.as_bytes());
-    hasher.update(&[edge.causality as u8]);
+    hasher.update(&[edge.kind as u8]);
+}
+
+fn hash_modulation(hasher: &mut Hasher, m: &crate::ir::Modulation) {
+    hasher.update(b"modulation:");
+    hasher.update(m.id.0.to_string().as_bytes());
+    hasher.update(m.source.node_id.0.to_string().as_bytes());
+    hasher.update(b":");
+    hasher.update(m.source.port_name.as_bytes());
+    hasher.update(b"->param:");
+    hasher.update(m.target_node.0.to_string().as_bytes());
+    hasher.update(b":");
+    hasher.update(m.target_param.as_bytes());
+    hasher.update(&m.amount.to_le_bytes());
 }
 
 /// Hash an entire graph for integrity verification.
@@ -124,11 +149,14 @@ pub fn hash_graph(graph: &Graph) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"dirtydata:graph:v1:");
 
-    for (_, node) in &graph.nodes {
+    for node in graph.nodes.values() {
         hash_node(&mut hasher, node);
     }
-    for (_, edge) in &graph.edges {
+    for edge in graph.edges.values() {
         hash_edge(&mut hasher, edge);
+    }
+    for m in graph.modulations.values() {
+        hash_modulation(&mut hasher, m);
     }
 
     hasher.update(&graph.revision.0.to_le_bytes());

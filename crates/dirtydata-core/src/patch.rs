@@ -42,6 +42,7 @@ pub struct Patch {
 pub enum Operation {
     AddNode(Node),
     RemoveNode(StableId),
+    ReplaceNode(Node),
     ModifyConfig {
         node_id: StableId,
         delta: ConfigDelta,
@@ -52,6 +53,8 @@ pub enum Operation {
         edge_id: StableId,
         delta: EdgeDelta,
     },
+    AddModulation(crate::ir::Modulation),
+    RemoveModulation(StableId),
 }
 
 /// An ordered collection of patches.
@@ -185,6 +188,15 @@ impl Graph {
                     .retain(|_, e| e.source.node_id != *id && e.target.node_id != *id);
             }
 
+            Operation::ReplaceNode(node) => {
+                if !self.nodes.contains_key(&node.id) {
+                    return Err(PatchError::NodeNotFound(node.id));
+                }
+                self.nodes.insert(node.id, node.clone());
+                // Note: We do NOT remove edges. It's up to the user to ensure
+                // ports are still compatible, otherwise validation will catch it.
+            }
+
             Operation::ModifyConfig { node_id, delta } => {
                 let node = self
                     .nodes
@@ -235,8 +247,25 @@ impl Graph {
                 if let Some(ref tgt) = delta.target {
                     edge.target = tgt.clone();
                 }
-                if let Some(c) = delta.causality {
-                    edge.causality = c;
+                if let Some(k) = delta.kind {
+                    edge.kind = k;
+                }
+            }
+
+            Operation::AddModulation(m) => {
+                if self.modulations.contains_key(&m.id) {
+                    return Err(PatchError::EdgeAlreadyExists(m.id)); // Use EdgeAlreadyExists as proxy
+                }
+                self.require_port(&m.source)?;
+                if !self.nodes.contains_key(&m.target_node) {
+                    return Err(PatchError::NodeNotFound(m.target_node));
+                }
+                self.modulations.insert(m.id, m.clone());
+            }
+
+            Operation::RemoveModulation(id) => {
+                if self.modulations.remove(id).is_none() {
+                    return Err(PatchError::EdgeNotFound(*id));
                 }
             }
         }
@@ -257,8 +286,6 @@ impl Graph {
         }
         Ok(())
     }
-
-
 }
 
 // ──────────────────────────────────────────────
@@ -320,8 +347,8 @@ impl Graph {
                             } else {
                                 None
                             },
-                            causality: if old.causality != edge.causality {
-                                Some(edge.causality)
+                            kind: if old.kind != edge.kind {
+                                Some(edge.kind)
                             } else {
                                 None
                             },
@@ -548,10 +575,7 @@ mod tests {
         graph.apply(&modify).unwrap();
 
         let n = graph.node(&node.id).unwrap();
-        assert_eq!(
-            n.config.get("gain_db"),
-            Some(&ConfigValue::Float(2.0))
-        );
+        assert_eq!(n.config.get("gain_db"), Some(&ConfigValue::Float(2.0)));
     }
 
     #[test]
@@ -703,9 +727,9 @@ mod tests {
         let p1 = PatchSet::single(Patch::from_operations(vec![Operation::AddNode(
             make_source(),
         )]));
-        let p2 = PatchSet::single(Patch::from_operations(vec![Operation::AddNode(
-            make_gain(),
-        )]));
+        let p2 = PatchSet::single(Patch::from_operations(vec![
+            Operation::AddNode(make_gain()),
+        ]));
 
         let merged = p1.merge(&p2).unwrap();
         assert_eq!(merged.len(), 2);

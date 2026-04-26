@@ -21,8 +21,8 @@
 use std::fmt::Write;
 
 use crate::actions::node_name;
-use crate::ir::Graph;
 use crate::hash;
+use crate::ir::Graph;
 use crate::types::*;
 
 /// Render the graph as Surface DSL text.
@@ -30,14 +30,28 @@ pub fn render_dsl(graph: &Graph) -> String {
     let mut out = String::new();
 
     // Header
-    writeln!(out, "# DirtyData Surface DSL — revision {}", graph.revision.0).unwrap();
-    writeln!(out, "# Hash: blake3:{}", hex_short(&hash::hash_graph(graph))).unwrap();
+    writeln!(
+        out,
+        "# DirtyData Surface DSL — revision {}",
+        graph.revision.0
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "# Hash: blake3:{}",
+        hex_short(&hash::hash_graph(graph))
+    )
+    .unwrap();
     writeln!(out, "# Patches: {}", graph.applied_patches.len()).unwrap();
     writeln!(out).unwrap();
 
     // Build name lookup for connections
     let name_of = |id: &StableId| -> String {
-        graph.nodes.get(id).map(node_name).unwrap_or_else(|| id.to_string())
+        graph
+            .nodes
+            .get(id)
+            .map(node_name)
+            .unwrap_or_else(|| id.to_string())
     };
 
     // Nodes
@@ -58,6 +72,9 @@ pub fn render_dsl(graph: &Graph) -> String {
             NodeKind::Intent => "intent",
             NodeKind::Metadata => "metadata",
             NodeKind::Boundary => "boundary",
+            NodeKind::SubGraph => "subgraph",
+            NodeKind::InputProxy => "input_proxy",
+            NodeKind::OutputProxy => "output_proxy",
         };
 
         writeln!(out, "{} \"{}\" {{", kind_str, node_name(node)).unwrap();
@@ -72,13 +89,14 @@ pub fn render_dsl(graph: &Graph) -> String {
         for edge in graph.edges.values() {
             let src_name = name_of(&edge.source.node_id);
             let tgt_name = name_of(&edge.target.node_id);
-            let causal_tag = if edge.causality { "causal" } else { "data" };
+            let kind_tag = match edge.kind {
+                crate::ir::EdgeKind::Normal => "normal",
+                crate::ir::EdgeKind::Feedback => "feedback",
+            };
             writeln!(
                 out,
                 "{}.{} -> {}.{}  # {}",
-                src_name, edge.source.port_name,
-                tgt_name, edge.target.port_name,
-                causal_tag
+                src_name, edge.source.port_name, tgt_name, edge.target.port_name, kind_tag
             )
             .unwrap();
         }
@@ -173,12 +191,24 @@ mod tests {
         let sink = Node::new_sink("Output");
 
         let edge1 = Edge::new(
-            PortRef { node_id: src.id, port_name: "out".into() },
-            PortRef { node_id: gain.id, port_name: "in".into() },
+            PortRef {
+                node_id: src.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: gain.id,
+                port_name: "in".into(),
+            },
         );
         let edge2 = Edge::new(
-            PortRef { node_id: gain.id, port_name: "out".into() },
-            PortRef { node_id: sink.id, port_name: "in".into() },
+            PortRef {
+                node_id: gain.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: sink.id,
+                port_name: "in".into(),
+            },
         );
 
         let patch = Patch::from_operations(vec![
@@ -200,7 +230,7 @@ mod tests {
         assert!(dsl.contains("Sine.out -> Gain.in"));
         assert!(dsl.contains("Gain.out -> Output.in"));
         assert!(dsl.contains("@sample"));
-        assert!(dsl.contains("# causal"));
+        assert!(dsl.contains("# normal"));
     }
 
     #[test]

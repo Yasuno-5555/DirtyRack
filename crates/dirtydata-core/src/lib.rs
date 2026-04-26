@@ -19,6 +19,7 @@ pub mod dsl;
 pub mod graph_utils;
 pub mod hash;
 pub mod ir;
+pub mod merge;
 pub mod patch;
 pub mod storage;
 pub mod types;

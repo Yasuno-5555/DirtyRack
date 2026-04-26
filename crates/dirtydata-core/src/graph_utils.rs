@@ -1,4 +1,4 @@
-use crate::ir::Graph;
+use crate::ir::{EdgeKind, Graph};
 use crate::types::StableId;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -16,8 +16,12 @@ pub fn topological_sort(graph: &Graph) -> (Vec<StableId>, Vec<Vec<StableId>>) {
     }
 
     for edge in graph.edges.values() {
-        adj.get_mut(&edge.source.node_id).unwrap().push(edge.target.node_id);
-        *in_degree.get_mut(&edge.target.node_id).unwrap() += 1;
+        if edge.kind == EdgeKind::Normal {
+            adj.get_mut(&edge.source.node_id)
+                .unwrap()
+                .push(edge.target.node_id);
+            *in_degree.get_mut(&edge.target.node_id).unwrap() += 1;
+        }
     }
 
     let mut queue = VecDeque::new();
@@ -45,7 +49,10 @@ pub fn topological_sort(graph: &Graph) -> (Vec<StableId>, Vec<Vec<StableId>>) {
     let mut cycles = Vec::new();
     if sorted.len() < all_nodes.len() {
         // Simple cycle detection: nodes with remaining in-degree are part of cycles
-        let remaining: HashSet<_> = all_nodes.into_iter().filter(|id| !sorted.contains(id)).collect();
+        let remaining: HashSet<_> = all_nodes
+            .into_iter()
+            .filter(|id| !sorted.contains(id))
+            .collect();
         // For MVP, we just return them as a single group of "cyclic nodes"
         // In a real system, we'd use Tarjan's or similar to find SCCs.
         cycles.push(remaining.into_iter().collect());

@@ -97,11 +97,89 @@ impl Node {
             confidence: ConfidenceScore::Verified,
         }
     }
+
+    pub fn new_subgraph(name: &str) -> Self {
+        Self {
+            id: StableId::new(),
+            kind: NodeKind::SubGraph,
+            ports: vec![
+                TypedPort {
+                    name: "in".into(),
+                    direction: PortDirection::Input,
+                    domain: ExecutionDomain::Sample,
+                    data_type: DataType::Audio { channels: 2 },
+                },
+                TypedPort {
+                    name: "out".into(),
+                    direction: PortDirection::Output,
+                    domain: ExecutionDomain::Sample,
+                    data_type: DataType::Audio { channels: 2 },
+                },
+            ],
+            config: {
+                let mut c = BTreeMap::new();
+                c.insert("name".into(), ConfigValue::String(name.into()));
+                c.insert("graph_json".into(), ConfigValue::String("{}".into()));
+                c
+            },
+            metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
+        }
+    }
+
+    pub fn new_input_proxy(name: &str) -> Self {
+        Self {
+            id: StableId::new(),
+            kind: NodeKind::InputProxy,
+            ports: vec![TypedPort {
+                name: "out".into(),
+                direction: PortDirection::Output,
+                domain: ExecutionDomain::Sample,
+                data_type: DataType::Audio { channels: 2 },
+            }],
+            config: {
+                let mut c = BTreeMap::new();
+                c.insert("name".into(), ConfigValue::String(name.into()));
+                c
+            },
+            metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
+        }
+    }
+
+    pub fn new_output_proxy(name: &str) -> Self {
+        Self {
+            id: StableId::new(),
+            kind: NodeKind::OutputProxy,
+            ports: vec![TypedPort {
+                name: "in".into(),
+                direction: PortDirection::Input,
+                domain: ExecutionDomain::Sample,
+                data_type: DataType::Audio { channels: 2 },
+            }],
+            config: {
+                let mut c = BTreeMap::new();
+                c.insert("name".into(), ConfigValue::String(name.into()));
+                c
+            },
+            metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
+        }
+    }
 }
 
 // ──────────────────────────────────────────────
 // §5.2 — Edge
 // ──────────────────────────────────────────────
+
+/// The type of connection between ports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EdgeKind {
+    /// Normal feed-forward connection (causal dependency).
+    Normal,
+    /// Feedback connection (1-sample delay, breaks DAG constraint).
+    Feedback,
+}
 
 /// An edge connecting two ports in the Canonical IR graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -109,8 +187,7 @@ pub struct Edge {
     pub id: StableId,
     pub source: PortRef,
     pub target: PortRef,
-    /// Whether this edge carries causal dependency.
-    pub causality: bool,
+    pub kind: EdgeKind,
 }
 
 impl Edge {
@@ -120,7 +197,44 @@ impl Edge {
             id: StableId::new(),
             source,
             target,
-            causality: true,
+            kind: EdgeKind::Normal,
+        }
+    }
+
+    /// Create a feedback edge (1-sample delay).
+    pub fn new_feedback(source: PortRef, target: PortRef) -> Self {
+        Self {
+            id: StableId::new(),
+            source,
+            target,
+            kind: EdgeKind::Feedback,
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// §5.3 — Modulation
+// ──────────────────────────────────────────────
+
+/// A modulation assignment between a source and a parameter.
+/// This is "cable-less" modulation — Bitwig style.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Modulation {
+    pub id: StableId,
+    pub source: PortRef,
+    pub target_node: StableId,
+    pub target_param: String,
+    pub amount: f32,
+}
+
+impl Modulation {
+    pub fn new(source: PortRef, target_node: StableId, target_param: String, amount: f32) -> Self {
+        Self {
+            id: StableId::new(),
+            source,
+            target_node,
+            target_param,
+            amount,
         }
     }
 }
@@ -137,6 +251,7 @@ impl Edge {
 pub struct Graph {
     pub nodes: BTreeMap<StableId, Node>,
     pub edges: BTreeMap<StableId, Edge>,
+    pub modulations: BTreeMap<StableId, Modulation>,
     pub revision: Revision,
     /// Ordered history of applied patches — explainability.
     /// "今この状態は何からできたか" が常に答えられること。
@@ -149,6 +264,7 @@ impl Graph {
         Self {
             nodes: BTreeMap::new(),
             edges: BTreeMap::new(),
+            modulations: BTreeMap::new(),
             revision: Revision::zero(),
             applied_patches: Vec::new(),
         }

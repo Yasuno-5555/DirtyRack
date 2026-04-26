@@ -8,3 +8,5 @@ edition.workspace = true
 bytemuck = "1.14"
 thiserror = "1.0"
 dirtydata-core = { path = "../dirtydata-core" }
+libloading = "0.9.0"
+vst3 = "0.3.0"

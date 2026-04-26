@@ -1,12 +1,5 @@
 #!/bin/bash
-# DirtyData — The Creative Operating System
+# DirtyRack — The Deterministic Creative OS
 
-# Check if project is initialized
-if [ ! -d ".dirtydata" ]; then
-    echo "▶ Initializing new DirtyData project..."
-    cargo run -p dirtydata-cli -- init
-fi
-
-# Launch the Workbench
-echo "▶ Launching DirtyData Workbench..."
-cargo run -p dirtydata-cli -- gui
+echo "▶ Launching DirtyRack..."
+cargo run -p dirtyrack-cli -- gui

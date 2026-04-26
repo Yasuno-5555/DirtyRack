@@ -5,8 +5,12 @@ members = [
     "crates/dirtydata-observer",
     "crates/dirtydata-host",
     "crates/dirtydata-intent",
-    "crates/dirtydata-cli",
-    "crates/dirtydata-gui",
+    "crates/dirtyrack-modules",
+    "crates/dirtyrack-gui",
+    "crates/dirtyrack-sdk",
+    "crates/example-thirdparty-module",
+    "crates/dirtyrack-cli",
+    "crates/dirtyrack-plugin",
 ]
 resolver = "2"
 

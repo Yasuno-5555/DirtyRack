@@ -9,19 +9,28 @@ use std::path::Path;
 
 use dirtydata_core::types::*;
 
-pub type IntentId = ulid::Ulid;
+/// Intent の実現方法。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "strategy", rename_all = "snake_case")]
+pub enum IntentStrategy {
+    /// 手動。ユーザーがパッチを適用して紐付ける。
+    Manual,
+    /// 自動。特定のノードを挿入する。
+    InsertNode {
+        kind: NodeKind,
+        name: String,
+        config: ConfigSnapshot,
+    },
+    /// 自動。既存のノードを接続する。
+    Bridge { from_node: String, to_node: String },
+    /// 自動。安全な Frozen Asset に置換する。
+    Freeze { target_node: String },
+}
 
-/// Intent の状態。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum IntentStatus {
-    /// 提案。まだ何も適用されていない。
-    Proposal,
-    /// 適用中。一部のパッチが紐付けられた。
-    Attached,
-    /// 完了・固定された。
-    Resolved,
-    /// 棄却された。
-    Discarded,
+impl Default for IntentStrategy {
+    fn default() -> Self {
+        Self::Manual
+    }
 }
 
 /// Intent 本体。何を実現したいか。
@@ -31,6 +40,7 @@ pub struct IntentNode {
     pub description: String,
     pub constraints: Vec<IntentConstraint>,
     pub status: IntentStatus,
+    pub strategy: IntentStrategy,
     pub attached_patches: Vec<PatchId>,
 }
 
@@ -59,18 +69,25 @@ impl IntentState {
 
     pub fn add(&mut self, description: String, constraints: Vec<IntentConstraint>) -> IntentId {
         let id = IntentId::new();
-        self.intents.insert(id, IntentNode {
+        self.intents.insert(
             id,
-            description,
-            constraints,
-            status: IntentStatus::Proposal,
-            attached_patches: Vec::new(),
-        });
+            IntentNode {
+                id,
+                description,
+                constraints,
+                status: IntentStatus::Proposal,
+                strategy: IntentStrategy::Manual,
+                attached_patches: Vec::new(),
+            },
+        );
         id
     }
 
     pub fn attach(&mut self, id: IntentId, patch_id: PatchId) -> Result<(), String> {
-        let intent = self.intents.get_mut(&id).ok_or_else(|| format!("Intent {} not found", id))?;
+        let intent = self
+            .intents
+            .get_mut(&id)
+            .ok_or_else(|| format!("Intent {} not found", id))?;
         if !intent.attached_patches.contains(&patch_id) {
             intent.attached_patches.push(patch_id);
         }
@@ -78,5 +95,47 @@ impl IntentState {
             intent.status = IntentStatus::Attached;
         }
         Ok(())
+    }
+
+    /// 制約を評価し、充足状況を返す
+    pub fn evaluate_constraints(
+        &self,
+        id: IntentId,
+        graph: &dirtydata_core::ir::Graph,
+    ) -> Vec<String> {
+        let intent = match self.intents.get(&id) {
+            Some(i) => i,
+            None => return vec![format!("Intent {} not found", id)],
+        };
+        let mut violations = Vec::new();
+
+        for constraint in &intent.constraints {
+            match constraint {
+                IntentConstraint::Must(desc) if desc.to_lowercase().contains("clip") => {
+                    // Check if all sinks have a ClipNode as input
+                    for node in graph.nodes.values() {
+                        if node.kind == NodeKind::Sink {
+                            let mut has_clip = false;
+                            for edge in graph.edges.values() {
+                                if edge.target.node_id == node.id {
+                                    if let Some(src_node) = graph.nodes.get(&edge.source.node_id) {
+                                        let name = dirtydata_core::actions::node_name(src_node);
+                                        if name.to_lowercase().contains("clip") {
+                                            has_clip = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if !has_clip {
+                                violations.push(format!("Constraint Violation [Must: {}]: Output '{}' must be protected by a Clip node.", desc, dirtydata_core::actions::node_name(node)));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        violations
     }
 }

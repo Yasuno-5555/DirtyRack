@@ -68,6 +68,7 @@ mod tests {
                 ports,
                 config,
                 metadata: MetadataRef(None),
+                confidence: ConfidenceScore::Verified,
             }
         })
     }
@@ -233,12 +234,24 @@ mod tests {
         let sink = Node::new_sink("Output");
 
         let edge1 = Edge::new(
-            PortRef { node_id: src.id, port_name: "out".into() },
-            PortRef { node_id: gain.id, port_name: "in".into() },
+            PortRef {
+                node_id: src.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: gain.id,
+                port_name: "in".into(),
+            },
         );
         let edge2 = Edge::new(
-            PortRef { node_id: gain.id, port_name: "out".into() },
-            PortRef { node_id: sink.id, port_name: "in".into() },
+            PortRef {
+                node_id: gain.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: sink.id,
+                port_name: "in".into(),
+            },
         );
 
         let p1 = Patch::from_operations(vec![
@@ -246,10 +259,7 @@ mod tests {
             Operation::AddNode(gain),
             Operation::AddNode(sink),
         ]);
-        let p2 = Patch::from_operations(vec![
-            Operation::AddEdge(edge1),
-            Operation::AddEdge(edge2),
-        ]);
+        let p2 = Patch::from_operations(vec![Operation::AddEdge(edge1), Operation::AddEdge(edge2)]);
 
         let mut graph = Graph::new();
         graph.apply(&p1).unwrap();

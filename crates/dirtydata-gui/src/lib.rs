@@ -4,6 +4,7 @@ use dirtydata_core::types::{StableId, PortRef, PatchSource, TrustLevel, IntentId
 use dirtydata_core::patch::Patch;
 use dirtydata_core::storage::Storage;
 use dirtydata_core::actions::{self, UserPatchFile};
+use dirtydata_runtime::nodes::MidiEvent;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -48,7 +49,23 @@ pub struct NodeVisuals {
 pub struct InteractionState {
     pub dragging_node: Option<(StableId, egui::Vec2)>,
     pub dragging_cable: Option<PortRef>,
+    pub marquee: Option<egui::Rect>,
     pub pending_edges: HashSet<(PortRef, PortRef)>,
+    pub quick_replace_target: Option<StableId>,
+    pub quick_replace_input: String,
+    pub graph_path: Vec<StableId>,
+    pub sample_editor: Option<SampleEditorState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SampleEditorState {
+    pub target_node: StableId,
+    pub clip_gain: f32,
+    pub fade_in: f32,
+    pub fade_out: f32,
+    pub start_pos: f32,
+    pub end_pos: f32,
+    pub dummy_waveform: Vec<f32>,
 }
 
 impl Default for UiLayout {
@@ -64,6 +81,55 @@ impl Default for UiLayout {
 
 pub mod app;
 pub mod editor;
+
+#[derive(Debug, Clone)]
+pub struct CommandPalette {
+    pub query: String,
+    pub results: Vec<SearchResult>,
+    pub selected_idx: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub label: String,
+    pub action: actions::UserAction,
+}
+
+impl CommandPalette {
+    pub fn new() -> Self {
+        Self {
+            query: String::new(),
+            results: Vec::new(),
+            selected_idx: 0,
+        }
+    }
+
+    pub fn update_search(&mut self) {
+        let mut items = Vec::new();
+        // Templates / Aliases
+        items.push(("Sine Oscillator", actions::UserAction::AddSource { name: "Sine".into(), channels: 2 }));
+        items.push(("Noise", actions::UserAction::AddSource { name: "Noise".into(), channels: 2 }));
+        items.push(("Gain / Amp", actions::UserAction::AddProcessor { name: "Gain".into(), channels: 2 }));
+        items.push(("LPF (Biquad)", actions::UserAction::AddProcessor { name: "Filter".into(), channels: 2 }));
+        items.push(("Compressor", actions::UserAction::AddProcessor { name: "Compressor".into(), channels: 2 }));
+        items.push(("Delay", actions::UserAction::AddProcessor { name: "Delay".into(), channels: 2 }));
+        items.push(("ADSR Envelope", actions::UserAction::AddProcessor { name: "Envelope".into(), channels: 1 }));
+        
+        // Simple fuzzy/substring match
+        let query = self.query.to_lowercase();
+        self.results = items.into_iter()
+            .filter(|(label, _)| {
+                let l = label.to_lowercase();
+                l.contains(&query) || (query == "lpf" && l.contains("filter")) || (query == "vca" && l.contains("gain"))
+            })
+            .map(|(label, action)| SearchResult { label: label.into(), action })
+            .collect();
+        
+        if self.selected_idx >= self.results.len() {
+            self.selected_idx = 0;
+        }
+    }
+}
 
 pub fn run_gui() -> eframe::Result<()> {
     let cwd = std::env::current_dir().expect("failed to get current dir");
@@ -107,8 +173,12 @@ pub fn run_gui() -> eframe::Result<()> {
         let _ = _watcher.watch(parent, RecursiveMode::NonRecursive);
     }
 
-    let engine = Arc::new(dirtydata_runtime::AudioEngine::new(initial_graph.clone()).expect("failed to start engine"));
-    let shared_state = Some(engine.shared_state());
+    let shared_state_ptr = Arc::new(dirtydata_runtime::SharedState::new());
+    let (_midi_tx, midi_rx) = crossbeam_channel::unbounded::<dirtydata_runtime::nodes::MidiEvent>();
+    let engine = Arc::new(dirtydata_runtime::AudioEngine::new(shared_state_ptr.clone(), midi_rx));
+    let _ = engine.command_tx.send(dirtydata_runtime::EngineCommand::ReplaceGraph(initial_graph.clone()));
+
+    let shared_state = Some(shared_state_ptr);
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -123,7 +193,7 @@ pub fn run_gui() -> eframe::Result<()> {
         Box::new(|_cc| {
             // Leak watcher to keep it running
             Box::leak(Box::new(_watcher));
-            Ok(Box::new(app::DirtyDataApp::new(shadow_graph, action_tx, layout, shared_state)))
+            Ok(Box::new(app::DirtyDataApp::new(shadow_graph, action_tx, layout, shared_state, cwd.clone(), Some(engine.command_tx.clone()))))
         }),
     )
 }

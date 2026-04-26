@@ -1,142 +1,69 @@
-# DirtyData
+# DirtyRack
 
-**Deterministic Creative Operating System**
+**Deterministic Eurorack Simulator & Modular DSP Engine**
 
-DirtyData は、音楽・映像・ゲーム・ポストプロダクションなど、複数の時間軸と非決定的な外部要素を含む創作環境に対して、**因果関係・意図・状態遷移を追跡可能にするための Deterministic Creative Operating System** です。
+DirtyRack は、ビット単位の再現性と物理的なモジュラー操作を融合させた、**高精度決定論的ユーロラック・シミュレータ**です。アナログの「カオス」や「揺らぎ」を愛しながらも、デジタルの「説明責任（Accountability）」を追求するアーティストとエンジニアのために設計されました。
 
-単なる「編集ツール（DAW）」ではなく、制作という本質的にカオスな行為に対して「説明責任（Accountability）」を与える Runtime + Provenance System として設計されています。
+単なるシンセサイザーではなく、パッチの全状態、演奏のジェスチャー、そして時間の流れを完全に固定し、ハッシュ値で検証可能にする **Forensic Audio Engine** です。
 
 ## 核心的設計思想
 
-* **実験の自由と出荷の厳格性を両立する**
-* **GUI・コード・実行結果の不一致を解消する**
-* **「何をしたか」ではなく「なぜそうなったか」を保存する**
-* **ブラックボックスな外部プラグインを検疫しながら共存する**
-* **思考の曖昧さを保護しつつ、最終成果物の再現性を保証する**
+*   **決定論的カオス**: カオスアトラクタや非線形フィードバックを扱いながら、同一シード・同一入力からは常に 1bit の狂いもない出力を保証する。
+*   **Massive Polyphony (16ch)**: VCV Rack 互換の 16 チャンネル・ポリフォニック・ケーブルを標準搭載。一本の結線がオーケストラのような密度を生む。
+*   **Audio Sanctity (聖域)**: オーディオ計算スレッドは 100% ロックフリー。UI 負荷やファイル IO によって音が途切れることを物理的に許さない。
+*   **Forensic Observation**: 「なぜこの音になったのか」を証明する鑑識レイヤー。Drift Inspector により、内部の熱状態や個体差をリアルタイムに解剖可能。
+*   **Open Ecology**: サードパーティが `dirtyrack-sdk` を用いて、独自の決定論的モジュールを Rust で開発・配布可能。
 
-詳細な思想については [Design Philosophy](docs/design_philosophy.md) を参照してください。
+## 主な機能
 
-## 主な機能 (Phase 3 Core Features)
+1.  **Massive Polyphonic DSP**: 全モジュールが 16 ボイス独立処理に対応。一本のケーブルでポリフォニックな表現を完結。
+2.  **Analog Imperfection Layer**: 決定論的に再現される「機材の個性（Personality）」と「熱ドリフト」。アナログ特有の不安定さを科学的にエミュレート。
+3.  **Aging Knob**: 新品の輝きから 20 年物の退廃までを、グローバルな「経年劣化」ノブ一つで制御。
+4.  **Forensic Inspector**: モジュールの内部状態を詳細に分析。ピッチのズレやフィルターの飽和の原因を客観的データとして可視化。
+5.  **Triple-Buffer Visuals**: オーディオスレッドの神聖さを保ちつつ、60fps+ の滑らかな波形投影と LED レベル表示を実現。
+6.  **MIDI-CV Bridge**: 外部 MIDI 信号をポリフォニックな 1V/Oct 信号へと変換し、ハードウェアとソフトウェアの境界を消失させる。
 
-1. **Timeline & Branching (Git + DAW Hybrid)**
-   物理ファイルを複製することなく、Git のようにパラレルワールド（ブランチ）を作成し、IR ポインタの切り替えによって超高速に状態を行き来できます。
-2. **Playable System (cpal + arc-swap)**
-   CLI からのパッチ適用によって、ロックフリー・ダブルバッファリングを用いたオーディオエンジンの DSP グラフが音切れなしで瞬時に切り替わります。
-3. **Plugin Boundary (IPC Sandbox)**
-   不確実性の高い外部VSTプラグインを安全な別プロセス（Sandbox）に隔離。NaN Storm やクラッシュ発生時には、DAWごと道連れにすることなく、瞬時に安全な Frozen Asset にフォールバックします。
-4. **Observer Daemon**
-   ファイルシステムと外部アセットを常時監視。ハッシュの自動再計算を行い、手動でのファイル改ざんなど「疑わしい変更」を UI 上で視覚化し警告します。
-5. **Graphical Projector (Phase 4 — egui)**
-   「GUI は Core IR の投影である」という理念に基づく視覚インターフェース。オーディオエンジンを妨げない Shadow Graph 同期、楽観的描画による低遅延操作、そして Intent や Confidence Score の視覚化を実現します。
+### Distribution & Formats
 
-詳細な技術構造については [Architecture](docs/architecture.md) を参照してください。
+- **Standalone App**: macOS 用 `.app` バンドルを提供。`/Applications` にドラッグ＆ドロップで即座に利用可能。
+- **VST3 / CLAP Plugin**: DAW (Ableton, Bitwig, Reaper, etc.) 内で 16ch ポリフォニック・モジュラーとして動作。
+- **CLI Tool**: 決定論的なオフラインレンダリングとハッシュ検証のためのコマンドライン・インターフェース。
 
-## Getting Started
+## クイックスタート
 
-### 必須要件
-- Rust (Edition 2021)
-- Cargo
-
-### インストールとビルド
-
+### Standalone (macOS)
 ```bash
-git clone https://github.com/your-org/dirtydata.git
-cd dirtydata
-cargo build --release
+# ルートの DirtyRack.app を /Applications にコピー
+open ./DirtyRack.app
 ```
 
-### プロジェクトの初期化
+### Plugin Deployment
+ルートに生成された `DirtyRack.clap` をプラグインフォルダに配置してください。
 
-DirtyData プロジェクトを作成したいディレクトリで以下を実行します。
-
-```bash
-cargo run --bin dirtydata-cli -- init
-```
-`.dirtydata/` 隠しディレクトリが生成され、`main` ブランチが初期化されます。
-
-### サウンドの再生と監視（デーモンの起動）
-
-別ターミナルでデーモンを起動し、オーディオ再生と監視を開始します。
-
-```bash
-cargo run --bin dirtydata-cli -- daemon
-```
-*オーディオデバイスが立ち上がり、パッチの適用を待ち受けます。*
-
-### グラフィカル・プロジェクターの起動
-
-Core の状態を視覚化し、操作するための GUI を起動します。
-
-```bash
-cargo run --bin dirtydata-cli -- gui
-```
-*egui ベースのインターフェースが立ち上がり、IR (current.json) の変更をリアルタイムに投影します。*
-
-### パッチの適用（ホットリロード）
-
-デーモンを起動したまま、パッチファイル（JSON）を適用してグラフを構築します。
-
-```bash
-# 基本的なサイン波 -> ゲイン -> 出力のチェインを構築
-cargo run --bin dirtydata-cli -- patch apply examples/basic_chain.json
-
-# 音を止めずに、EQ（ゲイン追加）をホットリロードで挿入
-cargo run --bin dirtydata-cli -- patch apply examples/add_eq.json
-```
-
-## Quick Start
-
-プロジェクトの初期化と GUI の起動を自動で行うスクリプトを用意しました。
-
-### macOS / Linux
-```bash
-./run.sh
-```
-
-### Windows
-```batch
-run.bat
-```
-
-または CLI を直接使用する場合：
-```bash
-cargo run -p dirtydata-cli -- gui
-```
-
-### ブランチを使った実験
-
-音のバリエーションを試すために、ブランチを切って実験します。
-
-```bash
-# 新しいアイデアのためのブランチを作成・移動
-cargo run --bin dirtydata-cli -- branch heavy_bass
-cargo run --bin dirtydata-cli -- checkout heavy_bass
-
-# 実験的なパッチを適用
-cargo run --bin dirtydata-cli -- patch apply examples/heavy_bass.json
-
-# 気に入らなければ、元の main ブランチへ一瞬で戻る（音も瞬時に戻ります）
-cargo run --bin dirtydata-cli -- checkout main
-```
-
-詳細なコマンド群については [CLI Reference](docs/cli_reference.md) を参照してください。
+**VST3 として使用する場合**:
+1. `DirtyRack.vst3/Contents/MacOS/` というディレクトリ構造を作成。
+2. その中に `DirtyRack.clap` を `DirtyRack` という名前でコピーして配置してください。
 
 ## プロジェクト構造
 
 ```text
-DirtyData/
+DirtyRack/
 ├── crates/
-│   ├── dirtydata-core/     # 核心となる IR (Graph, Node, Edge), Patch, Storage 定義
-│   ├── dirtydata-observer/ # 外部世界を監視し「疑い」を定量化する Observer 層
-│   ├── dirtydata-intent/   # ユーザーの「意図」をグラフに制約として紐付ける Intent 層
-│   ├── dirtydata-host/     # 不安定なプラグインを隔離する IPC サンドボックス層
-│   ├── dirtydata-runtime/  # Playable なリアルタイム・オーディオ・ストリーム層
-│   ├── dirtydata-gui/      # 「投影」と「干渉」を司る egui 視覚層
-│   └── dirtydata-cli/      # 人間とシステムを繋ぐ最初の接点
-├── docs/                   # ドキュメント一式
-└── examples/               # テスト用パッチファイル群
+│   ├── dirtyrack-sdk/      # サードパーティ開発用 SDK。コア・トレイトと SIMD ユーティリティ。
+│   ├── dirtyrack-modules/  # 決定論的 DSP モジュール兵器廠（VCO, VCF, Chaos, etc.）
+│   ├── dirtyrack-gui/      # egui ベースの「プロジェクター」。Triple-Buffer 同期。
+│   └── dirtyrack-core/     # 決定論的基盤。因果関係を管理する DAG エンジン。
+├── docs/                   # SDK ドキュメント、アーキテクチャ、哲学。
+└── modules/                # サードパーティ製動的ライブラリ (.so, .dll) の配置場所。
 ```
+
+## ドキュメント
+
+- [Design Philosophy (設計哲学)](docs/design_philosophy.md)
+- [Architecture (アーキテクチャ)](docs/architecture.md)
+- [SDK Documentation (開発者ガイド)](docs/SDK_Documentation.md)
+- [Creating Your First Module (チュートリアル)](docs/Tutorial_Creating_Modules.md)
 
 ## ライセンス
 
-[MIT License](LICENSE) (想定)
+MIT License

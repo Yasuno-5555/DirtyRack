@@ -138,9 +138,9 @@ fn check_topology(
             adjacency.entry(*id).or_default();
         }
 
-        // Build adjacency from causal edges only
+        // Build adjacency from normal edges only (Feedback edges don't carry causal dependency)
         for edge in graph.edges.values() {
-            if edge.causality {
+            if edge.kind == crate::ir::EdgeKind::Normal {
                 adjacency
                     .entry(edge.source.node_id)
                     .or_default()
@@ -274,7 +274,10 @@ fn check_dependencies(
         if let NodeKind::Foreign(plugin_name) = &node.kind {
             confidence_debt.push(ConfidenceDebt {
                 source: *id,
-                reason: format!("foreign plugin '{}' is nondeterministic by default", plugin_name),
+                reason: format!(
+                    "foreign plugin '{}' is nondeterministic by default",
+                    plugin_name
+                ),
                 confidence: ConfidenceScore::Suspicious,
                 weight: 30,
             });
@@ -356,12 +359,24 @@ mod tests {
         let sink = Node::new_sink("Output");
 
         let e1 = Edge::new(
-            PortRef { node_id: src.id, port_name: "out".into() },
-            PortRef { node_id: gain.id, port_name: "in".into() },
+            PortRef {
+                node_id: src.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: gain.id,
+                port_name: "in".into(),
+            },
         );
         let e2 = Edge::new(
-            PortRef { node_id: gain.id, port_name: "out".into() },
-            PortRef { node_id: sink.id, port_name: "in".into() },
+            PortRef {
+                node_id: gain.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: sink.id,
+                port_name: "in".into(),
+            },
         );
 
         let patch = Patch::from_operations(vec![
@@ -386,10 +401,8 @@ mod tests {
         let src = Node::new_source("Sine");
         let orphan = Node::new_processor("Orphan");
 
-        let patch = Patch::from_operations(vec![
-            Operation::AddNode(src),
-            Operation::AddNode(orphan),
-        ]);
+        let patch =
+            Patch::from_operations(vec![Operation::AddNode(src), Operation::AddNode(orphan)]);
 
         let mut graph = Graph::new();
         graph.apply(&patch).unwrap();
@@ -408,6 +421,7 @@ mod tests {
             ports: vec![],
             config: Default::default(),
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         };
 
         let patch = Patch::from_operations(vec![Operation::AddNode(foreign)]);
@@ -432,6 +446,7 @@ mod tests {
             }],
             config: Default::default(),
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         };
 
         let analyzer = Node {
@@ -445,11 +460,18 @@ mod tests {
             }],
             config: Default::default(),
             metadata: MetadataRef(None),
+            confidence: ConfidenceScore::Verified,
         };
 
         let edge = Edge::new(
-            PortRef { node_id: src.id, port_name: "out".into() },
-            PortRef { node_id: analyzer.id, port_name: "in".into() },
+            PortRef {
+                node_id: src.id,
+                port_name: "out".into(),
+            },
+            PortRef {
+                node_id: analyzer.id,
+                port_name: "in".into(),
+            },
         );
 
         let patch = Patch::from_operations(vec![
