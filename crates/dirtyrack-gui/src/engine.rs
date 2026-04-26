@@ -48,6 +48,10 @@ impl RackAudioEngine {
             connections: Vec::new(),
             port_counts: Vec::new(),
             node_ids: Vec::new(),
+            node_type_ids: Vec::new(),
+            modulations: Vec::new(),
+            forward_edges: Vec::new(),
+            back_edges: Vec::new(),
         };
         let params_inner = Arc::clone(&params);
 
@@ -68,14 +72,31 @@ impl RackAudioEngine {
 
                     let ps = params_inner.load();
 
+                    // Find Audio Out module index
+                    let output_node_idx = current_snapshot
+                        .node_type_ids
+                        .iter()
+                        .position(|id| id == "dirty_output");
+
                     for frame in data.chunks_mut(2) {
                         runner.process_sample(&current_snapshot, &ps);
 
-                        let last_node = current_snapshot.order.last().copied().unwrap_or(0);
-                        let out_val = (runner.get_output(last_node, 0) * 0.1).clamp(-1.0, 1.0);
-                        for s in frame.iter_mut() {
-                            *s = out_val;
+                        let (mut left, mut right) = (0.0, 0.0);
+                        if let Some(idx) = output_node_idx {
+                            // Audio Out module exists - read its inputs (which were pushed as outputs by zero-latency logic)
+                            // or better, we can have OutputModule store them in its own output buffer.
+                            left = runner.get_output(idx, 0);
+                            right = runner.get_output(idx, 1);
+                        } else {
+                            // Fallback: use the last node's output if no Audio Out is present
+                            let last_node = current_snapshot.order.last().copied().unwrap_or(0);
+                            left = runner.get_output(last_node, 0);
+                            right = left;
                         }
+
+                        let master_gain = 0.3; // Default master gain
+                        frame[0] = (left * master_gain).clamp(-1.0, 1.0);
+                        frame[1] = (right * master_gain).clamp(-1.0, 1.0);
                     }
 
                     // 鑑識データの収集
@@ -85,10 +106,11 @@ impl RackAudioEngine {
                         if let Some(node) = runner.active_nodes.get(i) {
                             state.forensic = node.get_forensic_data();
 
-                            // ついでにパーソナリティと現在のドリフトを注入
+                            // ついでにパーソナリティと現在のドリフト、エンジン統計を注入
                             if let Some(f) = &mut state.forensic {
-                                f.personality_offsets = runner.ctx.imperfection.personality; // TODO: node specific
-                                f.current_drift = runner.ctx.imperfection.drift;
+                                f.personality_offsets = runner.node_personalities[i]; 
+                                f.current_drift = runner.drift_engine.current_drift();
+                                f.stats = runner.stats[i];
                             }
                         }
 
@@ -122,9 +144,8 @@ impl RackAudioEngine {
     }
 
     pub fn update_topology(&self, snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
-        let params = vec![vec![0.0; 32]; snapshot.order.len()];
-        self.params.store(Arc::new(params));
-
+        // Wait-free Topology Update: We send the new nodes and snapshot to the audio thread
+        // where it will be swapped safely.
         let _ = self.topology_tx.send(TopologyUpdate { snapshot, nodes });
     }
 }

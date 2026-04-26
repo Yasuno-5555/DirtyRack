@@ -103,6 +103,9 @@ impl RackDspNode for VcoModule {
             outputs[0 * 16 + i] = libm::sinf(self.phases[i] * 2.0 * std::f32::consts::PI) * 5.0;
             // SAW
             outputs[1 * 16 + i] = (self.phases[i] * 2.0 - 1.0 - polyblep(self.phases[i], dt)) * 5.0;
+            // TRI
+            let tri = (self.phases[i] * 2.0 - 1.0).abs() * 2.0 - 1.0;
+            outputs[2 * 16 + i] = tri * 5.0;
             // SQUARE
             let mut sq = if self.phases[i] < pw { 1.0 } else { -1.0 };
             sq += polyblep(self.phases[i], dt);
@@ -132,7 +135,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 10,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "OSC", "VCO"],
         params: &[
             ParamDescriptor {
                 name: "FREQ",

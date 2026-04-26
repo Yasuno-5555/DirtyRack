@@ -25,15 +25,18 @@ impl RackDspNode for CrossfaderModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let a = inputs[0];
-        let b = inputs[1];
-        let cv = inputs[2];
         let mix_param = params[0];
 
-        // Combine param and CV (0.0 .. 1.0)
-        let mix = (mix_param + cv * 0.2).clamp(0.0, 1.0);
+        for v in 0..16 {
+            let a = inputs[0 * 16 + v];
+            let b = inputs[1 * 16 + v];
+            let cv = inputs[2 * 16 + v];
 
-        outputs[0] = a * (1.0 - mix) + b * mix;
+            // Combine param and CV (0.0 .. 1.0)
+            let mix = (mix_param + cv * 0.2).clamp(0.0, 1.0);
+
+            outputs[0 * 16 + v] = a * (1.0 - mix) + b * mix;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -47,7 +50,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "MIX", "UTL"],
         params: &[ParamDescriptor {
             name: "MIX",
             kind: ParamKind::Knob,

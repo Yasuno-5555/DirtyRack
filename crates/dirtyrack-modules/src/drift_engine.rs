@@ -93,4 +93,12 @@ impl VoiceDriftEngine {
             outputs[i] = self.generators[i].next(&mut self.rng);
         }
     }
+
+    pub fn current_drift(&self) -> [f32; 16] {
+        let mut out = [0.0; 16];
+        for i in 0..16 {
+            out[i] = self.generators[i].current_value;
+        }
+        out
+    }
 }

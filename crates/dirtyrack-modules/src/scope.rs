@@ -1,24 +1,25 @@
-//! Scope Module — Oscilloscope
-//!
-//! Visual-only module (parasite). No audio outputs.
+//! Forensic Scope Module — 鑑識用オシロスコープ
+//! 
+//! 16ボイスすべての信号を個別に、または重ねて表示し、
+//! ボイスごとの不完全さ（ドリフト等）による挙動の差異を視覚化する。
 
 use crate::signal::{
-    ParamDescriptor, ParamKind, ParamResponse, PortDescriptor, PortDirection, RackDspNode,
-    RackProcessContext, SeedScope, SignalType,
+    ForensicData, ParamDescriptor, ParamKind, ParamResponse, PortDescriptor, PortDirection,
+    RackDspNode, RackProcessContext, SignalType,
 };
+use std::collections::VecDeque;
 
 pub struct ScopeModule {
-    buffer_ch1: Vec<f32>,
-    buffer_ch2: Vec<f32>,
-    write_pos: usize,
+    history: [VecDeque<f32>; 16],
+    max_len: usize,
 }
 
 impl ScopeModule {
-    pub fn new(_sample_rate: f32) -> Self {
+    pub fn new() -> Self {
+        let mut history: [VecDeque<f32>; 16] = std::array::from_fn(|_| VecDeque::with_capacity(512));
         Self {
-            buffer_ch1: vec![0.0; 256],
-            buffer_ch2: vec![0.0; 256],
-            write_pos: 0,
+            history,
+            max_len: 512,
         }
     }
 }
@@ -31,10 +32,31 @@ impl RackDspNode for ScopeModule {
         _params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        self.buffer_ch1[self.write_pos] = inputs[0];
-        self.buffer_ch2[self.write_pos] = inputs[1];
-        self.write_pos = (self.write_pos + 1) % 256;
+        for v in 0..16 {
+            let val = inputs[v]; // Assuming 16-channel mono input at port 0
+            if self.history[v].len() >= self.max_len {
+                self.history[v].pop_front();
+            }
+            self.history[v].push_back(val);
+        }
     }
+
+    fn get_forensic_data(&self) -> Option<ForensicData> {
+        let mut trace = Vec::with_capacity(self.max_len);
+        for i in 0..self.max_len {
+            let mut sample = [0.0; 16];
+            for v in 0..16 {
+                sample[v] = *self.history[v].get(i).unwrap_or(&0.0);
+            }
+            trace.push(sample);
+        }
+        
+        let mut data = ForensicData::default();
+        data.internal_state_summary = format!("Buffer: {} samples", self.max_len);
+        data.signal_trace = Some(trace);
+        Some(data)
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
@@ -43,56 +65,24 @@ impl RackDspNode for ScopeModule {
 pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_scope",
-        name: "SCOPE",
+        name: "FORENSIC SCOPE",
         manufacturer: "DirtyRack",
-        hp_width: 12,
-        visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
-        params: &[
-            ParamDescriptor {
-                name: "TIMEBASE",
-                kind: ParamKind::Knob,
-                response: ParamResponse::Smoothed { ms: 50.0 },
-                min: 0.1,
-                max: 10.0,
-                default: 1.0,
-                position: [0.2, 0.2],
-                unit: "",
-            },
-            ParamDescriptor {
-                name: "TRIG",
-                kind: ParamKind::Knob,
-                response: ParamResponse::Smoothed { ms: 10.0 },
-                min: -5.0,
-                max: 5.0,
-                default: 0.0,
-                position: [0.8, 0.2],
-                unit: "V",
-            },
-        ],
-        ports: &[
-            PortDescriptor {
-                name: "CH1",
-                direction: PortDirection::Input,
-                signal_type: SignalType::Audio,
-                max_channels: 1,
-                position: [0.2, 0.8],
-            },
-            PortDescriptor {
-                name: "CH2",
-                direction: PortDirection::Input,
-                signal_type: SignalType::Audio,
-                max_channels: 1,
-                position: [0.4, 0.8],
-            },
-            PortDescriptor {
-                name: "EXT",
-                direction: PortDirection::Input,
-                signal_type: SignalType::Trigger,
-                max_channels: 1,
-                position: [0.8, 0.8],
-            },
-        ],
-        factory: |sr| Box::new(ScopeModule::new(sr)),
+        hp_width: 8,
+        visuals: crate::signal::ModuleVisuals {
+            background_color: [20, 20, 25],
+            text_color: [0, 200, 255],
+            accent_color: [0, 150, 255],
+            panel_texture: crate::signal::PanelTexture::MatteBlack,
+        },
+        tags: &["UTL", "VIS"],
+        params: &[],
+        ports: &[PortDescriptor {
+            name: "IN",
+            direction: PortDirection::Input,
+            signal_type: SignalType::Audio,
+            max_channels: 16,
+            position: [0.5, 0.8],
+        }],
+        factory: |_| Box::new(ScopeModule::new()),
     }
 }

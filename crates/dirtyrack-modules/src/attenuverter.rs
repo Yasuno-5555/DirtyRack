@@ -26,12 +26,14 @@ impl RackDspNode for AttenuverterModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        // Dual channels
-        for i in 0..2 {
-            let input = inputs[i];
-            let gain = params[i]; // -1.0 .. 1.0
-            let offset = params[i + 2]; // -5.0 .. 5.0
-            outputs[i] = input * gain + offset;
+        for v in 0..16 {
+            // Dual channels
+            for i in 0..2 {
+                let input = inputs[i * 16 + v];
+                let gain = params[i]; // -1.0 .. 1.0
+                let offset = params[i + 2]; // -5.0 .. 5.0
+                outputs[i * 16 + v] = input * gain + offset;
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -46,7 +48,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "UTL", "MIX"],
         params: &[
             ParamDescriptor {
                 name: "GAIN 1",

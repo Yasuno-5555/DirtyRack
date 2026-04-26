@@ -33,9 +33,8 @@ impl RackDspNode for SeqSwitchModule {
         _params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        let clock = inputs[1];
-        let reset = inputs[2];
+        let clock = inputs[1 * 16]; // Port 1 (CLK)
+        let reset = inputs[2 * 16]; // Port 2 (RESET)
 
         if self.reset.process(reset) {
             self.current_step = 0;
@@ -43,8 +42,11 @@ impl RackDspNode for SeqSwitchModule {
             self.current_step = (self.current_step + 1) % 4;
         }
 
-        for i in 0..4 {
-            outputs[i] = if i == self.current_step { input } else { 0.0 };
+        for v in 0..16 {
+            let input = inputs[0 * 16 + v]; // Port 0 (IN)
+            for i in 0..4 {
+                outputs[i * 16 + v] = if i == self.current_step { input } else { 0.0 };
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -59,7 +61,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "SEQ", "UTL"],
         params: &[],
         ports: &[
             PortDescriptor {

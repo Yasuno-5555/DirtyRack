@@ -23,3 +23,5 @@ egui_plot = "0.29"
 dirtyrack-sdk = { path = "../dirtyrack-sdk" }
 triple_buffer = "9.0"
 rand = "0.8"
+blake3 = "1.5"
+anyhow = "1.0"

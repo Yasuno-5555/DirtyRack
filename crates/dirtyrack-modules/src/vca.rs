@@ -6,12 +6,14 @@ use crate::signal::{
 };
 
 pub struct VcaModule {
-    // VCA is stateless in this simple implementation
+    gain_states: [f32; 16],
 }
 
 impl VcaModule {
     pub fn new(_sample_rate: f32) -> Self {
-        Self {}
+        Self {
+            gain_states: [0.0; 16],
+        }
     }
 }
 
@@ -33,11 +35,16 @@ impl RackDspNode for VcaModule {
             // 個体差によるゲインのズレ
             let p_offset = ctx.imperfection.personality[i] * 0.02;
 
-            // level (0..1) + CV(0..5V) scaled by amt
-            let raw_gain = (level_knob + (cv / 5.0) * cv_amt + p_offset).clamp(0.0, 4.0);
+            // target gain calculation
+            let target_gain = (level_knob + (cv / 5.0) * cv_amt + p_offset).clamp(0.0, 4.0);
+            
+            // Smoothing filter (1-pole LP) to prevent clicks
+            // Time constant ~ 1ms
+            let alpha = 0.99; 
+            self.gain_states[i] = self.gain_states[i] * alpha + target_gain * (1.0 - alpha);
 
             // 非線形性 (Analog saturation)
-            let gain = libm::tanhf(raw_gain);
+            let gain = libm::tanhf(self.gain_states[i]);
 
             outputs[0 * 16 + i] = input * gain;
         }
@@ -58,7 +65,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default_const(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "AMP", "VCA"],
         params: &[
             ParamDescriptor {
                 name: "LEVEL",

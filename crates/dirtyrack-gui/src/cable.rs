@@ -2,7 +2,7 @@
 //!
 //! 重力シミュレーション付きベジェ曲線ケーブル。
 
-use crate::rack::{Cable, CableAction, DraggingCable, DraggingModule, RackState};
+use crate::rack::{Cable, CableAction, DraggingCable, DraggingModule, RackState, ModuleRegistry};
 use dirtyrack_modules::signal::SignalType;
 use egui::{vec2, Color32, Painter, Pos2, Stroke, Vec2};
 
@@ -21,8 +21,8 @@ pub const CABLE_COLORS: &[Color32] = &[
 ];
 
 /// ケーブルアクションを処理（RackStateに委譲）
-pub fn handle_cable_action(rack: &mut RackState, action: CableAction, zoom: f32, pan: Vec2) {
-    rack.handle_action(action, zoom, pan);
+pub fn handle_cable_action(rack: &mut RackState, registry: &ModuleRegistry, action: CableAction, zoom: f32, pan: Vec2) {
+    rack.handle_action(action, registry, zoom, pan);
 }
 
 /// すべてのパッチケーブルを描画
@@ -34,14 +34,29 @@ pub fn draw_cables(painter: &Painter, rack: &RackState, zoom: f32, pan: Vec2) {
         if let (Some(from), Some(to)) = (from_pos, to_pos) {
             let screen_from = (from.to_vec2() * zoom + pan).to_pos2();
             let screen_to = (to.to_vec2() * zoom + pan).to_pos2();
-            let thickness = if cable.channels > 1 { 6.0 } else { 3.0 };
+            
+            // Tier B: Polyphonic Thickness & Activity
+            let mut thickness = (2.0 + (cable.channels as f32 * 0.5)).min(8.0);
+            
+            // Add subtle pulsing based on signal (if we had access to real-time signal here)
+            // For now, use the channel count to drive thickness
+            
+            let mut color = cable.color;
+            color = Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                (rack.cable_opacity * 255.0) as u8,
+            );
+
             draw_cable_curve(
                 painter,
                 screen_from,
                 screen_to,
-                cable.color,
+                color,
                 zoom,
                 thickness,
+                rack.cable_tension,
             );
         }
     }
@@ -59,7 +74,15 @@ pub fn draw_dragging_cable(
         let from_pos = rack.port_world_pos(drag.from_module, &drag.from_port);
         if let Some(from) = from_pos {
             let screen_from = (from.to_vec2() * zoom + pan).to_pos2();
-            draw_cable_curve(painter, screen_from, pointer, Color32::WHITE, zoom, 3.0);
+            draw_cable_curve(
+                painter,
+                screen_from,
+                pointer,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 150),
+                zoom,
+                3.0,
+                rack.cable_tension,
+            );
         }
     }
 }
@@ -72,9 +95,10 @@ fn draw_cable_curve(
     color: Color32,
     zoom: f32,
     thickness: f32,
+    tension: f32,
 ) {
     let distance = (to - from).length();
-    let sag = distance * CABLE_SAG * zoom;
+    let sag = distance * tension * zoom;
 
     let mid_x = (from.x + to.x) * 0.5;
     let mid_y = from.y.max(to.y) + sag;
@@ -101,11 +125,22 @@ fn draw_cable_curve(
         shadow_points,
         Stroke::new(
             (thickness + 0.5) * zoom,
-            Color32::from_rgba_unmultiplied(0, 0, 0, 80),
+            Color32::from_rgba_unmultiplied(0, 0, 0, (color.a() / 2) as u8),
         ),
     ));
     painter.add(egui::Shape::line(
-        points,
+        points.clone(),
         Stroke::new(thickness * zoom, color),
     ));
+
+    // --- Signal Flow Animation ---
+    let time = painter.ctx().input(|i| i.time);
+    let pulse_count = 3;
+    for i in 0..pulse_count {
+        let t_offset = (time as f32 * 0.5 + (i as f32 / pulse_count as f32)) % 1.0;
+        let p_idx = (t_offset * segments as f32) as usize;
+        if let Some(&p) = points.get(p_idx) {
+            painter.circle_filled(p, 1.5 * zoom, Color32::from_rgba_unmultiplied(255, 255, 255, 180));
+        }
+    }
 }

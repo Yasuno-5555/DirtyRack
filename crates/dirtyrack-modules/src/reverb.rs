@@ -53,7 +53,7 @@ impl RackDspNode for ReverbModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
+        let input = inputs[0 * 16]; // Port 0 (IN)
         let size = params[0]; // Decay time
         let dry_wet = params[1];
 
@@ -64,10 +64,6 @@ impl RackDspNode for ReverbModule {
         }
 
         // 2. Householder Matrix Mixing (Unitary)
-        // [ -0.5  0.5  0.5  0.5 ]
-        // [  0.5 -0.5  0.5  0.5 ]
-        // [  0.5  0.5 -0.5  0.5 ]
-        // [  0.5  0.5  0.5 -0.5 ]
         let sum = d[0] + d[1] + d[2] + d[3];
         let mut mixed = [0.0; 4];
         for i in 0..4 {
@@ -83,7 +79,11 @@ impl RackDspNode for ReverbModule {
 
         // Output (Mono sum of FDN)
         let reverb_out = (d[0] + d[1] + d[2] + d[3]) * 0.5;
-        outputs[0] = input * (1.0 - dry_wet) + reverb_out * dry_wet;
+        let final_out = input * (1.0 - dry_wet) + reverb_out * dry_wet;
+
+        for v in 0..16 {
+            outputs[0 * 16 + v] = final_out;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -97,7 +97,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "FX", "REVERB"],
         params: &[
             ParamDescriptor {
                 name: "SIZE",

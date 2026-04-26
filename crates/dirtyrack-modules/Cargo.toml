@@ -15,6 +15,7 @@ libm = "0.2"
 wide = "0.7"
 libloading = "0.8"
 rand_chacha = "0.3"
+hound = "3.5"
+blake3 = { workspace = true }
 
 [dev-dependencies]
-blake3 = { workspace = true }

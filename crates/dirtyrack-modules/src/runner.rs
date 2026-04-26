@@ -19,11 +19,23 @@ pub struct Connection {
 }
 
 #[derive(Clone)]
+pub struct ModEntry {
+    pub param_idx: usize,
+    pub src_module_idx: usize,
+    pub src_port_idx: usize,
+    pub amount: f32,
+}
+
+#[derive(Clone)]
 pub struct GraphSnapshot {
     pub order: Vec<usize>,
     pub connections: Vec<Connection>,
     pub port_counts: Vec<(usize, usize)>,
     pub node_ids: Vec<u64>,
+    pub node_type_ids: Vec<String>,
+    pub forward_edges: Vec<Vec<Connection>>,
+    pub back_edges: Vec<Connection>,
+    pub modulations: Vec<Vec<ModEntry>>, // [module_idx] -> Vec<ModEntry>
 }
 
 pub struct RackRunner {
@@ -32,9 +44,10 @@ pub struct RackRunner {
     pub active_nodes: Vec<Box<dyn RackDspNode>>,
     pub input_buffers: Vec<Vec<f32>>,
     pub output_buffers: Vec<Vec<f32>>,
-    drift_engine: VoiceDriftEngine,
-    /// 各ノード・ボイスごとの静的な個体差 [node_idx][voice_idx]
-    node_personalities: Vec<[f32; 16]>,
+    pub modulated_params: Vec<Vec<f32>>, // [module_idx][param_idx]
+    pub stats: Vec<crate::signal::EngineStats>,
+    pub drift_engine: VoiceDriftEngine,
+    pub node_personalities: Vec<[f32; 16]>,
 }
 
 impl RackRunner {
@@ -48,12 +61,32 @@ impl RackRunner {
             active_nodes: Vec::new(),
             input_buffers: Vec::new(),
             output_buffers: Vec::new(),
+            modulated_params: Vec::new(),
+            stats: Vec::new(),
             drift_engine: VoiceDriftEngine::new(seed),
             node_personalities: Vec::new(),
         }
     }
 
-    pub fn apply_snapshot(&mut self, snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
+    pub fn apply_snapshot(&mut self, mut snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
+        let mut order_map = vec![0; nodes.len()];
+        for (i, &node_idx) in snapshot.order.iter().enumerate() {
+            order_map[node_idx] = i;
+        }
+
+        let mut forward = vec![Vec::new(); nodes.len()];
+        let mut back = Vec::new();
+
+        for conn in &snapshot.connections {
+            if order_map[conn.from_module] < order_map[conn.to_module] {
+                forward[conn.from_module].push(conn.clone());
+            } else {
+                back.push(conn.clone());
+            }
+        }
+        snapshot.forward_edges = forward;
+        snapshot.back_edges = back;
+
         self.active_nodes = nodes;
         self.output_buffers = snapshot
             .port_counts
@@ -65,14 +98,26 @@ impl RackRunner {
             .iter()
             .map(|(inp, _)| vec![0.0; inp * 16])
             .collect();
+        
+        self.modulated_params = snapshot
+            .modulations
+            .iter()
+            .map(|m| vec![0.0; m.len()]) // This is wrong, it should be based on descriptor param count
+            .collect();
+        
+        // Re-initialize modulated_params correctly
+        self.modulated_params.clear();
+        for i in 0..self.active_nodes.len() {
+            // How do we know the param count? It's in the descriptor, but we only have nodes here.
+            // For now, let's just use a large enough buffer or pass it in.
+            self.modulated_params.push(vec![0.0; 64]); 
+        }
 
-        // 個体差の初期化
         self.node_personalities = Vec::with_capacity(self.active_nodes.len());
         for i in 0..self.active_nodes.len() {
             let node_id = snapshot.node_ids.get(i).copied().unwrap_or(0);
             let mut personalities = [0.0; 16];
             for v in 0..16 {
-                // Hash(Project_Seed + Stable_Node_ID + Voice_Index)
                 let mut hasher = ChaCha8Rng::seed_from_u64(
                     self.ctx.project_seed ^ (node_id as u64) ^ (v as u64),
                 );
@@ -83,54 +128,89 @@ impl RackRunner {
         self.ctx.sample_index = 0;
     }
 
-    pub fn process_sample(&mut self, snapshot: &GraphSnapshot, _params: &[Vec<f32>]) {
-        // ドリフトの更新 (aging でスケーリング)
+    pub fn process_sample(&mut self, snapshot: &GraphSnapshot, base_params: &[Vec<f32>]) {
         self.drift_engine.process(&mut self.ctx.imperfection.drift);
         for d in &mut self.ctx.imperfection.drift {
-            *d *= 0.1 + self.ctx.aging * 2.0; // 新品でも 0.1、20年物で 2.1 倍の揺れ
+            *d *= 0.1 + self.ctx.aging * 2.0;
         }
 
-        // 1. Clear input buffers
+        // 1. Clear all inputs
         for buf in &mut self.input_buffers {
-            for val in buf {
-                *val = 0.0;
-            }
+            buf.fill(0.0);
         }
 
-        // 2. Map connections
-        for conn in &snapshot.connections {
+        // 2. Add feedback (backward edges)
+        for conn in &snapshot.back_edges {
             let src_start = conn.from_port * 16;
             let dst_start = conn.to_port * 16;
-            for i in 0..16 {
-                self.input_buffers[conn.to_module][dst_start + i] =
-                    self.output_buffers[conn.from_module][src_start + i];
+            let src_node = &self.output_buffers[conn.from_module];
+            let dst_node = &mut self.input_buffers[conn.to_module];
+            for v in 0..16 {
+                dst_node[dst_start + v] += src_node[src_start + v];
             }
         }
 
-        // 3. Process nodes in topological order
+        // 3. Process in topological order
         for &idx in &snapshot.order {
             if let Some(node) = self.active_nodes.get_mut(idx) {
-                // このノードの個体差を設定
                 self.ctx.imperfection.personality = self.node_personalities[idx];
+
+                // --- Apply Modulations ---
+                let mut params = base_params.get(idx).cloned().unwrap_or_else(|| vec![0.0; 64]);
+                for mod_entry in &snapshot.modulations[idx] {
+                    if let Some(src_buf) = self.output_buffers.get(mod_entry.src_module_idx) {
+                        let mod_val = src_buf[mod_entry.src_port_idx * 16]; 
+                        params[mod_entry.param_idx] += mod_val * mod_entry.amount;
+                    }
+                }
 
                 let ins = &self.input_buffers[idx];
                 let outs = &mut self.output_buffers[idx];
-                let params: &[f32] = if idx < _params.len() {
-                    _params[idx].as_slice()
-                } else {
-                    &[]
-                };
+                node.process(ins, outs, &params, &self.ctx);
+                
+                // Store for forensics/UI
+                self.modulated_params[idx] = params;
 
-                node.process(ins, outs, params, &self.ctx);
+                // --- High-End Signal Integrity Sentry & Stats ---
+                let stats = &mut self.stats[idx];
+                let mut current_energy = 0.0;
+                for val in outs.iter_mut() {
+                    let abs_val = val.abs();
+                    current_energy += abs_val;
+                    
+                    // Peak detection
+                    if abs_val > stats.peak_db {
+                        stats.peak_db = abs_val;
+                    }
 
-                // Safety: Clamp all outputs to avoid NaN or extreme values causing audio death
-                for val in outs {
-                    if val.is_nan() {
+                    if val.is_nan() || val.is_infinite() {
+                        stats.clipping_count += 1;
                         *val = 0.0;
-                    } else if *val > 10.0 {
-                        *val = 10.0;
-                    } else if *val < -10.0 {
-                        *val = -10.0;
+                    } else if abs_val > 5.0 {
+                        // Clipping detection (Eurorack ±5V standard)
+                        stats.clipping_count += 1;
+                    } else if abs_val < 1e-15 && abs_val > 0.0 {
+                        // Denormal Protection: Flush to zero
+                        stats.denormal_count += 1;
+                        *val = 0.0;
+                    }
+                    
+                    // DC Offset tracking (Simple leaky integrator)
+                    stats.dc_offset = stats.dc_offset * 0.999 + (*val) * 0.001;
+
+                    // Safety Clamp (±24V)
+                    *val = val.clamp(-24.0, 24.0);
+                }
+                stats.energy_delta = current_energy;
+
+                // 4. Zero-Latency Push
+                for conn in &snapshot.forward_edges[idx] {
+                    let src_start = conn.from_port * 16;
+                    let dst_start = conn.to_port * 16;
+                    let src_node = &self.output_buffers[conn.from_module];
+                    let dst_node = &mut self.input_buffers[conn.to_module];
+                    for v in 0..16 {
+                        dst_node[dst_start + v] += src_node[src_start + v];
                     }
                 }
             }

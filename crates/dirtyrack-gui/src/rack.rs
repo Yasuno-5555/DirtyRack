@@ -15,18 +15,27 @@ pub use dirtyrack_modules::{
     SignalType,
 };
 use egui::{vec2, Color32, Painter, Pos2, Rect, Stroke, Vec2};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use anyhow::Result;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 pub const HP_PIXELS: f32 = 15.0;
 pub const RACK_HEIGHT: f32 = 380.0;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModBinding {
+    pub source_stable_id: u64,
+    pub source_port_idx: usize,
+    pub amount: f32,
+}
+
 pub struct ModuleInstance {
     pub descriptor: Arc<ModuleDescriptor>,
     pub params: BTreeMap<String, f32>,
+    pub param_modulations: BTreeMap<String, Vec<ModBinding>>,
     pub output_values: Vec<f32>,
     pub input_values: Vec<f32>,
     pub stable_id: u64,
@@ -57,6 +66,7 @@ impl ModuleInstance {
         Self {
             descriptor: Arc::clone(&descriptor),
             params,
+            param_modulations: BTreeMap::new(),
             output_values: vec![0.0; out_count],
             input_values: vec![0.0; in_count],
             stable_id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -122,8 +132,25 @@ pub enum CableAction {
     RandomizeParams {
         module_idx: usize,
     },
+    ResetModule {
+        module_idx: usize,
+    },
+    AddModMapping {
+        target_module_idx: usize,
+        param_name: String,
+        src_stable_id: u64,
+        src_port_idx: usize,
+    },
+    ClearModMappings {
+        module_idx: usize,
+        param_name: String,
+    },
     InspectForensics {
         stable_id: u64,
+    },
+    CopySelection,
+    PasteSelection {
+        pointer_pos: Pos2,
     },
     CancelDrag,
 }
@@ -139,6 +166,42 @@ pub struct DraggingModule {
     pub offset: Vec2,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerializableModule {
+    pub id: String,
+    pub stable_id: u64,
+    pub params: BTreeMap<String, f32>,
+    pub param_modulations: BTreeMap<String, Vec<ModBinding>>,
+    pub hp_position: f32,
+    pub row: usize,
+    pub bypassed: bool,
+    pub dsp_state: Option<Vec<u8>>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerializableCable {
+    pub from_stable_id: u64,
+    pub from_port: String,
+    pub to_stable_id: u64,
+    pub to_port: String,
+    pub color: [u8; 4], // Color32 as RGBA
+    pub channels: u8,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerializableRack {
+    pub version: String,
+    pub engine_hash: String,
+    pub modules: Vec<SerializableModule>,
+    pub cables: Vec<SerializableCable>,
+    pub project_seed: u64,
+    pub aging: f32,
+    pub cable_opacity: f32,
+    pub cable_tension: f32,
+    pub causality_log: Vec<CausalityEvent>,
+    pub snapshots: BTreeMap<String, BTreeMap<u64, BTreeMap<String, f32>>>,
+}
+
 pub struct RackState {
     pub modules: Vec<ModuleInstance>,
     pub cables: Vec<Cable>,
@@ -147,9 +210,29 @@ pub struct RackState {
     pub sample_rate: f32,
     pub project_seed: u64,
     pub aging: f32,
+    pub cable_opacity: f32,
+    pub cable_tension: f32,
     pub event_queue: Vec<PatchEvent>,
     pub schema_version: u32,
+    /// Snapshots for Diff Viewer [snapshot_name] -> [module_stable_id] -> [param_name] -> value
+    pub snapshots: BTreeMap<String, BTreeMap<u64, BTreeMap<String, f32>>>,
+    pub snapshot_blend: f32, // 0.0 = A, 1.0 = B
+    pub blend_targets: (String, String), // (SnapA, SnapB)
+    pub selection: Vec<u64>, // List of stable_ids
+    pub box_select_start: Option<Pos2>, // World position
+    pub clipboard: Option<SerializableRack>,
+    pub history: VecDeque<SerializableRack>,
+    pub causality_log: Vec<CausalityEvent>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CausalityEvent {
+    pub timestamp: f64,
+    pub description: String,
+    pub event_type: String, // "PARAM", "SNAPSHOT", "DIVERGENCE", "FAILURE"
+}
+
+const MAX_HISTORY: usize = 100;
 
 impl RackState {
     pub fn new() -> Self {
@@ -161,12 +244,187 @@ impl RackState {
             sample_rate: 44100.0,
             project_seed: 0xDE7E_B11D,
             aging: 0.0,
+            cable_opacity: 0.8,
+            cable_tension: 0.15,
             event_queue: Vec::new(),
             schema_version: 2,
+            snapshots: BTreeMap::new(),
+            snapshot_blend: 0.0,
+            blend_targets: ("A".to_string(), "B".to_string()),
+            selection: Vec::new(),
+            box_select_start: None,
+            clipboard: None,
+            history: VecDeque::with_capacity(MAX_HISTORY),
+            causality_log: Vec::new(),
         }
     }
 
-    pub fn handle_action(&mut self, action: CableAction, zoom: f32, pan: Vec2) {
+    pub fn log_event(&mut self, description: &str, event_type: &str, time: f64) {
+        self.causality_log.push(CausalityEvent {
+            timestamp: time,
+            description: description.to_string(),
+            event_type: event_type.to_string(),
+        });
+    }
+
+    pub fn push_history(&mut self) {
+        let serial = self.to_serializable();
+        if self.history.len() >= MAX_HISTORY {
+            self.history.pop_front();
+        }
+        self.history.push_back(serial);
+    }
+
+    pub fn take_snapshot(&mut self, name: &str) {
+        let mut snap = BTreeMap::new();
+        for m in &self.modules {
+            snap.insert(m.stable_id, m.params.clone());
+        }
+        self.snapshots.insert(name.to_string(), snap);
+        self.causality_log.push(CausalityEvent {
+            timestamp: 0.0,
+            event_type: "SNAPSHOT".to_string(),
+            description: format!("Snapshot '{}' created", name),
+        });
+    }
+
+    pub fn apply_blend(&mut self) {
+        let (name_a, name_b) = &self.blend_targets;
+        let t = self.snapshot_blend;
+        
+        let snap_a = if let Some(s) = self.snapshots.get(name_a) { s } else { return; };
+        let snap_b = if let Some(s) = self.snapshots.get(name_b) { s } else { return; };
+
+        for m in &mut self.modules {
+            if let (Some(params_a), Some(params_b)) = (snap_a.get(&m.stable_id), snap_b.get(&m.stable_id)) {
+                for (name, val_a) in params_a {
+                    if let Some(val_b) = params_b.get(name) {
+                        let blended = val_a * (1.0 - t) + val_b * t;
+                        m.params.insert(name.clone(), blended);
+                        
+                        // Notify engine
+                        self.event_queue.push(PatchEvent::ParamChanged {
+                            stable_id: m.stable_id,
+                            name: name.clone(),
+                            value_bits: blended.to_bits(),
+                            intent: IntentBoundary::Commit(IntentClass::Structural, None),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn hash_patch(&self) -> String {
+        let serial = self.to_serializable();
+        let json = serde_json::to_string(&serial).unwrap_or_default();
+        blake3::hash(json.as_bytes()).to_hex().to_string()
+    }
+
+    pub fn to_serializable(&self) -> SerializableRack {
+        SerializableRack {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            engine_hash: "TODO_CALC_DSP_HASH".to_string(),
+            modules: self.modules.iter().map(|m| SerializableModule {
+                id: m.descriptor.id.to_string(),
+                stable_id: m.stable_id,
+                params: m.params.clone(),
+                param_modulations: m.param_modulations.clone(),
+                hp_position: m.hp_position,
+                row: m.row,
+                bypassed: m.bypassed,
+                dsp_state: m.dsp.extract_state(),
+            }).collect(),
+            cables: self.cables.iter().map(|c| {
+                let from_stable = self.modules.get(c.from_module).map(|m| m.stable_id).unwrap_or(0);
+                let to_stable = self.modules.get(c.to_module).map(|m| m.stable_id).unwrap_or(0);
+                SerializableCable {
+                    from_stable_id: from_stable,
+                    from_port: c.from_port.clone(),
+                    to_stable_id: to_stable,
+                    to_port: c.to_port.clone(),
+                    color: [c.color.r(), c.color.g(), c.color.b(), c.color.a()],
+                    channels: c.channels,
+                }
+            }).collect(),
+            project_seed: self.project_seed,
+            aging: self.aging,
+            cable_opacity: self.cable_opacity,
+            cable_tension: self.cable_tension,
+            causality_log: self.causality_log.clone(),
+            snapshots: self.snapshots.clone(),
+        }
+    }
+
+    pub fn from_serializable(serial: SerializableRack, registry: &ModuleRegistry, sample_rate: f32) -> Self {
+        let mut modules = Vec::new();
+        let mut max_stable_id = 0;
+
+        for sm in serial.modules {
+            if let Some(desc) = registry.find(&sm.id) {
+                let mut inst = ModuleInstance::new(desc, sample_rate);
+                inst.stable_id = sm.stable_id;
+                inst.params = sm.params;
+                inst.param_modulations = sm.param_modulations;
+                inst.hp_position = sm.hp_position;
+                inst.row = sm.row;
+                inst.bypassed = sm.bypassed;
+                if let Some(state) = sm.dsp_state {
+                    inst.dsp.inject_state(&state);
+                }
+                if inst.stable_id > max_stable_id {
+                    max_stable_id = inst.stable_id;
+                }
+                modules.push(inst);
+            }
+        }
+
+        // Update global ID counter to avoid collisions
+        NEXT_ID.store(max_stable_id + 1, Ordering::Relaxed);
+
+        let mut stable_to_idx = BTreeMap::new();
+        for (i, m) in modules.iter().enumerate() {
+            stable_to_idx.insert(m.stable_id, i);
+        }
+
+        let mut cables = Vec::new();
+        for sc in serial.cables {
+            if let (Some(&from_idx), Some(&to_idx)) = (stable_to_idx.get(&sc.from_stable_id), stable_to_idx.get(&sc.to_stable_id)) {
+                cables.push(Cable {
+                    from_module: from_idx,
+                    from_port: sc.from_port,
+                    to_module: to_idx,
+                    to_port: sc.to_port,
+                    color: Color32::from_rgba_unmultiplied(sc.color[0], sc.color[1], sc.color[2], sc.color[3]),
+                    channels: sc.channels,
+                });
+            }
+        }
+
+        Self {
+            modules,
+            cables,
+            dragging_cable: None,
+            dragging_module: None,
+            sample_rate,
+            project_seed: serial.project_seed,
+            aging: serial.aging,
+            cable_opacity: serial.cable_opacity,
+            cable_tension: serial.cable_tension,
+            event_queue: Vec::new(),
+            schema_version: 2,
+            snapshots: serial.snapshots,
+            snapshot_blend: 0.0,
+            blend_targets: (String::new(), String::new()),
+            selection: Vec::new(),
+            box_select_start: None,
+            clipboard: None,
+            history: VecDeque::with_capacity(MAX_HISTORY),
+            causality_log: serial.causality_log,
+        }
+    }
+
+    pub fn handle_action(&mut self, action: CableAction, registry: &ModuleRegistry, zoom: f32, pan: Vec2) {
         match action {
             CableAction::StartDrag {
                 module_idx,
@@ -249,7 +507,12 @@ impl RackState {
             } => {
                 if let Some(m) = self.modules.get_mut(module_idx) {
                     m.params.insert(name.clone(), value);
-                    if let IntentBoundary::Commit(_, _) = intent {
+                    if let IntentBoundary::Commit(class, _) = intent {
+                        self.causality_log.push(CausalityEvent {
+                            timestamp: 0.0, // Should use real time if possible
+                            event_type: "PARAM".to_string(),
+                            description: format!("Module {} param '{}' -> {:.3}", m.descriptor.name, name, value),
+                        });
                         self.event_queue.push(PatchEvent::ParamChanged {
                             stable_id: m.stable_id,
                             name,
@@ -276,9 +539,25 @@ impl RackState {
                 pointer_pos,
             } => {
                 if let Some(drag) = &self.dragging_module {
+                    let old_hp = self.modules[drag.module_idx].hp_position;
                     let target_world_pos = (pointer_pos + drag.offset - pan) / zoom;
-                    let hp_x = (target_world_pos.x / HP_PIXELS).round();
-                    self.modules[drag.module_idx].hp_position = hp_x;
+                    let new_hp = (target_world_pos.x / HP_PIXELS).round();
+                    let delta_hp = new_hp - old_hp;
+
+                    if delta_hp != 0.0 {
+                        let dragging_stable_id = self.modules[drag.module_idx].stable_id;
+                        if self.selection.contains(&dragging_stable_id) {
+                            // Move entire selection
+                            for m_id in &self.selection {
+                                if let Some(m) = self.modules.iter_mut().find(|m| m.stable_id == *m_id) {
+                                    m.hp_position += delta_hp;
+                                }
+                            }
+                        } else {
+                            // Just move this one
+                            self.modules[drag.module_idx].hp_position = new_hp;
+                        }
+                    }
                 }
             }
             CableAction::RemoveModule { module_idx } => {
@@ -314,7 +593,147 @@ impl RackState {
                     }
                 }
             }
+            CableAction::ResetModule { module_idx } => {
+                if let Some(m) = self.modules.get_mut(module_idx) {
+                    for p in m.descriptor.params.iter() {
+                        let val = p.default;
+                        m.params.insert(p.name.to_string(), val);
+                        self.event_queue.push(PatchEvent::ParamChanged {
+                            stable_id: m.stable_id,
+                            name: p.name.to_string(),
+                            value_bits: val.to_bits(),
+                            intent: IntentBoundary::Commit(IntentClass::Structural, None),
+                        });
+                    }
+                    m.dsp.reset();
+                }
+            }
+            CableAction::AddModMapping { target_module_idx, param_name, src_stable_id, src_port_idx } => {
+                if let Some(m) = self.modules.get_mut(target_module_idx) {
+                    let bindings = m.param_modulations.entry(param_name).or_insert(Vec::new());
+                    bindings.push(ModBinding {
+                        source_stable_id: src_stable_id,
+                        source_port_idx: src_port_idx,
+                        amount: 1.0, // Default full depth
+                    });
+                    // Structural change requires rebuild
+                    self.event_queue.push(PatchEvent::ParamChanged {
+                        stable_id: m.stable_id,
+                        name: "mod_mappings".to_string(),
+                        value_bits: 0,
+                        intent: IntentBoundary::Commit(IntentClass::Structural, None),
+                    });
+                }
+            }
+            CableAction::ClearModMappings { module_idx, param_name } => {
+                if let Some(m) = self.modules.get_mut(module_idx) {
+                    m.param_modulations.remove(&param_name);
+                    self.event_queue.push(PatchEvent::ParamChanged {
+                        stable_id: m.stable_id,
+                        name: "mod_mappings".to_string(),
+                        value_bits: 0,
+                        intent: IntentBoundary::Commit(IntentClass::Structural, None),
+                    });
+                }
+            }
             CableAction::InspectForensics { .. } => {}
+            CableAction::CopySelection => {
+                if self.selection.is_empty() { return; }
+                
+                // Get selected modules
+                let selected_modules: Vec<_> = self.modules.iter()
+                    .enumerate()
+                    .filter(|(_, m)| self.selection.contains(&m.stable_id))
+                    .collect();
+                
+                let min_hp = selected_modules.iter().map(|(_, m)| m.hp_position).fold(f32::INFINITY, f32::min);
+                
+                let mut serial_modules = Vec::new();
+                let mut old_to_new_idx = BTreeMap::new();
+                
+                for (i, (old_idx, m)) in selected_modules.iter().enumerate() {
+                    serial_modules.push(SerializableModule {
+                        id: m.descriptor.id.to_string(),
+                        stable_id: m.stable_id,
+                        params: m.params.clone(),
+                        param_modulations: m.param_modulations.clone(),
+                        hp_position: m.hp_position - min_hp, // Relative to selection
+                        row: m.row,
+                        bypassed: m.bypassed,
+                        dsp_state: m.dsp.extract_state(),
+                    });
+                    old_to_new_idx.insert(*old_idx, i);
+                }
+                
+                let mut serial_cables = Vec::new();
+                for c in &self.cables {
+                    if let (Some(&from_new), Some(&to_new)) = (old_to_new_idx.get(&c.from_module), old_to_new_idx.get(&c.to_module)) {
+                        serial_cables.push(SerializableCable {
+                            from_stable_id: selected_modules[from_new].1.stable_id,
+                            from_port: c.from_port.clone(),
+                            to_stable_id: selected_modules[to_new].1.stable_id,
+                            to_port: c.to_port.clone(),
+                            color: [c.color.r(), c.color.g(), c.color.b(), c.color.a()],
+                            channels: c.channels,
+                        });
+                    }
+                }
+                
+                self.clipboard = Some(SerializableRack {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    engine_hash: String::new(),
+                    modules: serial_modules,
+                    cables: serial_cables,
+                    project_seed: self.project_seed,
+                    aging: self.aging,
+                    cable_opacity: self.cable_opacity,
+                    cable_tension: self.cable_tension,
+                    causality_log: Vec::new(), // Clipboards don't need full history
+                    snapshots: BTreeMap::new(),
+                });
+            }
+            CableAction::PasteSelection { pointer_pos } => {
+                if let Some(serial) = self.clipboard.clone() {
+                    let base_hp = (pointer_pos.x / HP_PIXELS).round();
+                    
+                    let mut new_modules = Vec::new();
+                    let start_module_idx = self.modules.len();
+                    
+                    let mut old_stable_to_new_idx = BTreeMap::new();
+                    
+                    for (i, sm) in serial.modules.iter().enumerate() {
+                        if let Some(desc) = registry.find(&sm.id) {
+                            let mut inst = ModuleInstance::new(desc, self.sample_rate);
+                            inst.params = sm.params.clone();
+                            inst.param_modulations = sm.param_modulations.clone();
+                            inst.hp_position = base_hp + sm.hp_position;
+                            inst.row = sm.row;
+                            inst.bypassed = sm.bypassed;
+                            if let Some(state) = &sm.dsp_state {
+                                inst.dsp.inject_state(state);
+                            }
+                            old_stable_to_new_idx.insert(sm.stable_id, start_module_idx + i);
+                            new_modules.push(inst);
+                        }
+                    }
+                    
+                    for c in serial.cables {
+                        if let (Some(&from_idx), Some(&to_idx)) = (old_stable_to_new_idx.get(&c.from_stable_id), old_stable_to_new_idx.get(&c.to_stable_id)) {
+                            self.cables.push(Cable {
+                                from_module: from_idx,
+                                from_port: c.from_port,
+                                to_module: to_idx,
+                                to_port: c.to_port,
+                                color: Color32::from_rgba_unmultiplied(c.color[0], c.color[1], c.color[2], c.color[3]),
+                                channels: c.channels,
+                            });
+                        }
+                    }
+                    
+                    self.modules.extend(new_modules);
+                    // Rebuild will happen after event processing
+                }
+            }
             CableAction::CancelDrag => {
                 self.dragging_cable = None;
                 self.dragging_module = None;
@@ -437,7 +856,15 @@ impl RackState {
             order.push(idx);
         }
 
-        for i in 0..n {
+        let mut start_nodes: Vec<usize> = (0..n).collect();
+        start_nodes.sort_by(|&a, &b| {
+            self.modules[a]
+                .hp_position
+                .partial_cmp(&self.modules[b].hp_position)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for i in start_nodes {
             dfs(
                 i,
                 &self.modules,
@@ -449,14 +876,12 @@ impl RackState {
         }
 
         let mut node_ids = Vec::with_capacity(n);
+        let mut node_type_ids = Vec::with_capacity(n);
         let mut new_nodes = Vec::with_capacity(n);
         for &idx in &order {
             let m = &self.modules[idx];
             node_ids.push(m.stable_id);
-            // In a real implementation, we might need to recreate nodes from state,
-            // but for now we'll just use a factory if we don't want to move out.
-            // Actually, let's just create a placeholder or assume we move them later.
-            // For DirtyRack, we often recreate nodes from extract_state/inject_state.
+            node_type_ids.push(m.descriptor.id.to_string());
             new_nodes.push((m.descriptor.factory)(self.sample_rate));
         }
 
@@ -515,10 +940,14 @@ impl RackState {
 
         (
             GraphSnapshot {
-                order: (0..n).collect(),
+                modulations: vec![Vec::new(); order.len()],
+                order,
                 connections,
                 port_counts,
                 node_ids,
+                node_type_ids,
+                forward_edges: Vec::new(),
+                back_edges: Vec::new(),
             },
             new_nodes,
         )

@@ -30,9 +30,11 @@ impl RackDspNode for QuantizerModule {
         _params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        // 12-TET quantization: round to nearest 1/12V
-        outputs[0] = (input * 12.0).round() / 12.0;
+        for v in 0..16 {
+            let input = inputs[0 * 16 + v];
+            // 12-TET quantization: round to nearest 1/12V
+            outputs[0 * 16 + v] = (input * 12.0).round() / 12.0;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -46,7 +48,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "UTL", "PITCH"],
         params: &[ParamDescriptor {
             name: "SCALE",
             kind: ParamKind::Knob,

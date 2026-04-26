@@ -4,25 +4,25 @@
 
 DirtyRack is a **high-precision deterministic Eurorack simulator** that merges bit-perfect reproducibility with physical modular interaction. It is designed for artists and engineers who love the "chaos" and "fluctuations" of analog but demand digital "Accountability."
 
-More than just a synthesizer, it is a **Forensic Audio Engine** that completely freezes the entire state of a patch, performance gestures, and the flow of time, making them verifiable via hash values.
+More than just a synthesizer, it is a **Forensic Audio Infrastructure** that treats sound as a diagnosable medical case. It freezes the entire state of a patch, performance gestures, and the flow of time, making them verifiable via hash values.
 
 ## Core Design Philosophy
 
-*   **Deterministic Chaos**: Handles chaos attractors and non-linear feedback while guaranteeing 1-bit accuracy for the same seed and input.
+*   **Deterministic Chaos (Gehenna Engine)**: Handles chaos attractors and non-linear feedback while guaranteeing 1-bit accuracy for the same seed and input.
 *   **Massive Polyphony (16ch)**: Native support for VCV Rack-compatible 16-channel polyphonic cables. A single connection yields orchestral density.
-*   **Audio Sanctity**: The audio processing thread is 100% lock-free. It physically prevents glitches caused by UI load or file I/O.
-*   **Forensic Observation**: A forensic layer that proves "why this sound happened." The Drift Inspector allows real-time dissection of internal thermal states and individual component variances.
-*   **Open Ecology**: Third parties can develop and distribute their own deterministic modules in Rust using the `dirtyrack-sdk`.
+*   **Acoustic Forensics**: A forensic layer that proves "why this sound happened." The **Patch MRI** allows real-time dissection of internal thermal states and individual component variances.
+*   **The Spec is Absolute**: Adheres to the **.dirtyrack Open Specification**, ensuring that your sound design is portable, verifiable, and permanent.
+*   **Forensic Observation**: Implementations like the **Divergence Map** and **Provenance Timeline** allow users to trace the causality of sound design choices.
 
 ## Key Features
 
-1.  **Massive Polyphonic DSP**: All modules support independent 16-voice processing. Complete polyphonic expression with a single cable.
-2.  **Analog Imperfection Layer**: Deterministically reproduced "Equipment Personality" and "Thermal Drift." Scientifically emulates the instability unique to analog.
-3.  **Aging Knob**: Control everything from "factory-new" shine to 20 years of "vintage decay" with a single global knob.
-4.  **Forensic Inspector**: Deeply analyze the internal state of modules. Visualize the causes of pitch drift or filter saturation as objective data.
-5.  **Triple-Buffer Visuals**: Maintains the sanctity of the audio thread while delivering smooth 60fps+ waveform projections and LED level displays.
-6.  **MIDI-CV Bridge**: Converts external MIDI signals into polyphonic 1V/Oct signals, vanishing the boundary between hardware and software.
-7.  **Deterministic Auditing (New)**: Features a Divergence Map to detect "reality splits" at sample precision, and an Intent-to-Sound Trace to track the causality of sound.
+1.  **Gehenna Parallel Engine**: A second-generation parallel DSP engine optimized for SIMD, delivering deterministic analog "personality" across 16 voices.
+2.  **Patch MRI (Pathology Scan)**: Visualize signal trauma in real-time. Detect clipping (Glow), energy density (Heatmap), and DC Drift (Aura) directly on module faceplates.
+3.  **Provenance Timeline**: A chronological map of every parameter change and snapshot. Traces the "intent" behind the sound.
+4.  **Forensic Inspector**: Deeply analyze the internal state of modules. Includes an **Explain Why** button that generates medical-style diagnostic reports for signal abnormalities.
+5.  **.dirtyrack Spec v1.0**: A standardized format for patches (`.dirty`) and audit certificates (`.dirty.cert`). Enables "Acoustic Notarization."
+6.  **Differential Audit**: Compare two snapshots or renders at sample precision. Detect exactly what changed between iterations.
+7.  **Verification CLI**: A command-line utility for CI/CD and production environments. Run `dirty verify` to ensure the integrity of your audio output.
 
 ### Distribution & Formats
 

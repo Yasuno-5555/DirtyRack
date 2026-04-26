@@ -144,7 +144,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
             accent_color: [220, 40, 40],
             panel_texture: crate::signal::PanelTexture::MatteBlack,
         },
-        tags: &["Builtin"],
+        tags: &["Builtin", "FLT", "VCF"],
         params: &[
             ParamDescriptor {
                 name: "CUTOFF",

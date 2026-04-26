@@ -30,9 +30,11 @@ impl RackDspNode for InputModule {
         _ctx: &RackProcessContext,
     ) {
         let gain = params[0];
-        // 16ch対応: Lは0ch、Rは1chに割り当て
-        outputs[0] = self.external_in_l * gain;
-        outputs[1] = self.external_in_r * gain;
+        // 16ch対応: LはPort 0、RはPort 1。全ボイスに同じ信号を分配
+        for v in 0..16 {
+            outputs[0 * 16 + v] = self.external_in_l * gain;
+            outputs[1 * 16 + v] = self.external_in_r * gain;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self

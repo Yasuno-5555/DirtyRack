@@ -31,14 +31,16 @@ impl RackDspNode for SampleHoldModule {
         _params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        let trig_in = inputs[1];
+        let input = inputs[0 * 16]; // Port 0 (IN)
+        let trig_in = inputs[1 * 16]; // Port 1 (TRIG)
 
         if self.trigger.process(trig_in) {
             self.held_value = input;
         }
 
-        outputs[0] = self.held_value;
+        for v in 0..16 {
+            outputs[0 * 16 + v] = self.held_value;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -52,7 +54,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "UTL", "MOD"],
         params: &[],
         ports: &[
             PortDescriptor {

@@ -79,15 +79,23 @@ impl RackDspNode for EnvelopeModule {
                     self.values[i] = 0.0;
                 }
                 EnvelopeState::Attack => {
-                    self.values[i] += dt / a;
+                    // Attack is often perceived better as a slightly faster-than-linear or exponential curve
+                    // Here we use a standard RC-style curve towards 1.2 (to ensure we hit 1.0 fast and snap)
+                    let target = 1.2;
+                    let alpha = libm::expf(-dt / a);
+                    self.values[i] = target + (self.values[i] - target) * alpha;
+                    
                     if self.values[i] >= 1.0 {
                         self.values[i] = 1.0;
                         self.states[i] = EnvelopeState::Decay;
                     }
                 }
                 EnvelopeState::Decay => {
-                    self.values[i] -= dt / d;
-                    if self.values[i] <= s {
+                    let target = s;
+                    let alpha = libm::expf(-dt / d);
+                    self.values[i] = target + (self.values[i] - target) * alpha;
+                    
+                    if (self.values[i] - s).abs() < 0.001 {
                         self.values[i] = s;
                         self.states[i] = EnvelopeState::Sustain;
                     }
@@ -99,8 +107,11 @@ impl RackDspNode for EnvelopeModule {
                     }
                 }
                 EnvelopeState::Release => {
-                    self.values[i] -= dt / r;
-                    if self.values[i] <= 0.0 {
+                    let target = 0.0;
+                    let alpha = libm::expf(-dt / r);
+                    self.values[i] = target + (self.values[i] - target) * alpha;
+
+                    if self.values[i] <= 0.001 {
                         self.values[i] = 0.0;
                         self.states[i] = EnvelopeState::Idle;
                     }
@@ -122,7 +133,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "ENV", "ADSR"],
         params: &[
             ParamDescriptor {
                 name: "ATTACK",

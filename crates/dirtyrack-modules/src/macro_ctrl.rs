@@ -26,8 +26,10 @@ impl RackDspNode for MacroModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        for i in 0..8 {
-            outputs[i] = params[i];
+        for v in 0..16 {
+            for i in 0..8 {
+                outputs[i * 16 + v] = params[i];
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {

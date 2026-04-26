@@ -34,9 +34,11 @@ struct ModuleLayout {
 pub fn draw_module(
     ui: &mut Ui,
     rack: &mut RackState,
+    registry: &crate::rack::ModuleRegistry,
     module_idx: usize,
     zoom: f32,
     pan: Vec2,
+    mri_mode: bool,
     visual_snapshot: &crate::visual_data::VisualSnapshot,
 ) -> Option<CableAction> {
     let mut cable_action = None;
@@ -87,6 +89,15 @@ pub fn draw_module(
             ui.close_menu();
         }
         ui.separator();
+        if ui.button("🔄 Initialize").clicked() {
+            cable_action = Some(CableAction::ResetModule { module_idx });
+            ui.close_menu();
+        }
+        if ui.button("🎲 Randomize").clicked() {
+            cable_action = Some(CableAction::RandomizeParams { module_idx });
+            ui.close_menu();
+        }
+        ui.separator();
         if ui.button("🚫 Bypass").clicked() {
             cable_action = Some(CableAction::ToggleBypass { module_idx });
             ui.close_menu();
@@ -123,6 +134,58 @@ pub fn draw_module(
             4.0 * zoom,
             Stroke::new(1.0 * zoom, Color32::from_gray(80)),
         );
+
+        let is_selected = rack.selection.contains(&rack.modules[module_idx].stable_id);
+        let module_rect = layout.screen_rect;
+        let visual_state = visual_snapshot.modules.get(&rack.modules[module_idx].stable_id);
+
+        // Highlight if selected
+        if is_selected {
+            painter.rect_stroke(
+                module_rect,
+                0.0,
+                Stroke::new(2.0 * zoom, Color32::from_rgb(0, 150, 255)),
+            );
+        }
+
+        // --- Tier SSS: Patch MRI Overlay ---
+        if mri_mode {
+            if let Some(visual) = visual_state {
+            if let Some(f) = &visual.forensic {
+                let stats = &f.stats;
+                
+                // Clipping Glow (Red)
+                if stats.clipping_count > 0 {
+                    let intensity = (stats.clipping_count as f32 / 1000.0).min(1.0);
+                    painter.rect_filled(
+                        module_rect,
+                        0.0,
+                        Color32::from_rgba_unmultiplied(255, 0, 0, (intensity * 100.0) as u8),
+                    );
+                }
+
+                // Energy Density (Orange Heat)
+                if stats.energy_delta > 0.1 {
+                    let intensity = (stats.energy_delta / 50.0).min(0.8);
+                    painter.rect_filled(
+                        module_rect,
+                        0.0,
+                        Color32::from_rgba_unmultiplied(255, 100, 0, (intensity * 80.0) as u8),
+                    );
+                }
+
+                // DC Drift (Purple Aura)
+                if stats.dc_offset.abs() > 0.1 {
+                    let intensity = (stats.dc_offset.abs() / 2.0).min(1.0);
+                    painter.rect_stroke(
+                        module_rect.expand(4.0 * zoom),
+                        4.0 * zoom,
+                        Stroke::new(2.0 * zoom, Color32::from_rgba_unmultiplied(200, 0, 255, (intensity * 150.0) as u8)),
+                    );
+                }
+            }
+        }
+    }
 
         // Left Accent Strip (Brand indicator)
         let strip_rect = Rect::from_min_max(
@@ -420,7 +483,42 @@ fn draw_knob(
     // Interaction
     let knob_rect = Rect::from_center_size(center, vec2(radius * 2.5, radius * 2.5));
     let knob_id = ui.make_persistent_id(("knob", module_idx, name));
-    let response = ui.interact(knob_rect, knob_id, egui::Sense::drag());
+    let response = ui.interact(knob_rect, knob_id, egui::Sense::drag().union(egui::Sense::click()));
+
+    // --- Right-click Mapping Menu ---
+    response.context_menu(|ui| {
+        ui.label(egui::RichText::new(format!("Map {}", name)).strong());
+        ui.separator();
+        
+        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+            for (m_idx, m) in rack.modules.iter().enumerate() {
+                ui.menu_button(format!("{}: {}", m_idx, m.descriptor.name), |ui| {
+                    for (p_idx, p) in m.descriptor.ports.iter().filter(|p| p.direction == PortDirection::Output).enumerate() {
+                        if ui.button(&*p.name).clicked() {
+                            action = Some(CableAction::AddModMapping {
+                                target_module_idx: module_idx,
+                                param_name: name.to_string(),
+                                src_stable_id: m.stable_id,
+                                src_port_idx: p_idx,
+                            });
+                            ui.close_menu();
+                        }
+                    }
+                });
+            }
+        });
+
+        if !rack.modules[module_idx].param_modulations.get(name).map(|v| v.is_empty()).unwrap_or(true) {
+            ui.separator();
+            if ui.button("🗑 Clear Mappings").clicked() {
+                action = Some(CableAction::ClearModMappings {
+                    module_idx,
+                    param_name: name.to_string(),
+                });
+                ui.close_menu();
+            }
+        }
+    });
 
     if response.drag_started() {
         action = Some(CableAction::ParamUpdate {
@@ -452,9 +550,49 @@ fn draw_knob(
         });
     }
 
+    // Tooltip for value
+    response.on_hover_ui(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(format!("{}:", name));
+            let unit = rack.modules[module_idx].descriptor.params.iter()
+                .find(|p| p.name == name)
+                .map(|p| p.unit)
+                .unwrap_or("");
+            
+            // Check for snapshot diff
+            let stable_id = rack.modules[module_idx].stable_id;
+            let mut diff_str = String::new();
+            if let Some(snap_a) = rack.snapshots.get("A") {
+                if let Some(mod_snap) = snap_a.get(&stable_id) {
+                    if let Some(&old_val) = mod_snap.get(name) {
+                        if (old_val - current).abs() > 0.0001 {
+                            diff_str = format!(" (Δ {:.3})", current - old_val);
+                        }
+                    }
+                }
+            }
+
+            ui.label(egui::RichText::new(format!("{:.3} {}{}", current, unit, diff_str)).strong());
+        });
+    });
+
     // Draw knob
     {
         let painter = ui.painter();
+        
+        // --- Divergence Glow ---
+        let stable_id = rack.modules[module_idx].stable_id;
+        if let Some(snap_a) = rack.snapshots.get("A") {
+            if let Some(mod_snap) = snap_a.get(&stable_id) {
+                if let Some(&old_val) = mod_snap.get(name) {
+                    if (old_val - current).abs() > 0.001 {
+                        // Parameter has drifted! Draw an orange glow
+                        painter.circle_stroke(center, radius + 2.0 * zoom, Stroke::new(2.0 * zoom, Color32::from_rgb(255, 165, 0)));
+                    }
+                }
+            }
+        }
+
         painter.circle_filled(center, radius, Color32::from_rgb(50, 50, 55));
         painter.circle_stroke(
             center,

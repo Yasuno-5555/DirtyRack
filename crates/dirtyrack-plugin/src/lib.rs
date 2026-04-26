@@ -59,6 +59,21 @@ impl Default for DirtyRackPlugin {
             ],
             port_counts: vec![(0, 4), (4, 4), (2, 0)],
             node_ids: vec![1, 2, 3],
+            node_type_ids: vec!["midi".to_string(), "vco".to_string(), "output".to_string()],
+            modulations: vec![vec![], vec![], vec![]],
+            forward_edges: vec![
+                vec![Connection { from_module: 0, from_port: 0, to_module: 1, to_port: 0 }],
+                vec![
+                    Connection { from_module: 1, from_port: 0, to_module: 2, to_port: 0 },
+                    Connection { from_module: 1, from_port: 0, to_module: 2, to_port: 1 }
+                ],
+                vec![]
+            ],
+            back_edges: vec![
+                Connection { from_module: 0, from_port: 0, to_module: 1, to_port: 0 },
+                Connection { from_module: 1, from_port: 0, to_module: 2, to_port: 0 },
+                Connection { from_module: 1, from_port: 0, to_module: 2, to_port: 1 }
+            ],
         };
 
         let nodes: Vec<Box<dyn RackDspNode>> = vec![midi, vco, output];

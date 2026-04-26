@@ -1328,6 +1328,7 @@ dependencies = [
  "dashmap",
  "dirtydata-core",
  "dirtydata-host",
+ "dirtydata-observer",
  "hound",
  "midir",
  "num-complex",
@@ -1360,7 +1361,9 @@ dependencies = [
 name = "dirtyrack-gui"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arc-swap",
+ "blake3",
  "cpal",
  "crossbeam-channel",
  "crossbeam-queue",
@@ -1384,6 +1387,7 @@ dependencies = [
  "blake3",
  "dirtydata-core",
  "dirtyrack-sdk",
+ "hound",
  "libloading 0.8.9",
  "libm",
  "rand 0.8.6",

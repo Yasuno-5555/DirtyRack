@@ -40,10 +40,12 @@ pub mod mod_matrix;
 pub mod noise;
 pub mod output;
 pub mod quantizer;
+pub mod recorder;
 pub mod registry;
 pub mod renderer;
 pub mod reverb;
 pub mod runner;
+pub mod saturation;
 pub mod scope;
 pub mod sequencer;
 pub mod sh;
@@ -53,7 +55,10 @@ pub mod vca;
 pub mod vcf;
 pub mod vco;
 pub mod wavefolder;
+pub mod wdf;
+pub mod wdf_filter;
 pub mod xfade;
+pub mod zdf_filter;
 
 pub use registry::{ModuleDescriptor, ModuleRegistry};
 pub use signal::{

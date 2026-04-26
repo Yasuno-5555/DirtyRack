@@ -42,12 +42,14 @@ impl RackDspNode for DelayModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        let time_val = params[0]; // 0.0 .. 1.0 (0 .. 2s)
+        let input = inputs[0 * 16]; // Port 0 (IN)
+        let time_cv = inputs[1 * 16]; // Port 1 (TIME_CV)
+        let time_knob = params[0]; // 0.0 .. 1.0 (0 .. 2s)
         let feedback = params[1].clamp(0.0, 0.99);
         let dry_wet = params[2].clamp(0.0, 1.0);
 
-        let delay_samples = (time_val * (self.buffer.len() as f32 - 1.0)).max(1.0);
+        let total_time = (time_knob + time_cv * 0.1).clamp(0.0, 1.0);
+        let delay_samples = (total_time * (self.buffer.len() as f32 - 1.0)).max(1.0);
 
         // Read position with linear interpolation for bit-identical determinism
         let read_pos = (self.write_pos as f32 - delay_samples + self.buffer.len() as f32)
@@ -62,7 +64,9 @@ impl RackDspNode for DelayModule {
         self.buffer[self.write_pos] = input + delayed * feedback;
         self.write_pos = (self.write_pos + 1) % self.buffer.len();
 
-        outputs[0] = input * (1.0 - dry_wet) + delayed * dry_wet;
+        for v in 0..16 {
+            outputs[0 * 16 + v] = input * (1.0 - dry_wet) + delayed * dry_wet;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -76,7 +80,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "FX", "DELAY"],
         params: &[
             ParamDescriptor {
                 name: "TIME",

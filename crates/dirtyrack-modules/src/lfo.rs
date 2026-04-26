@@ -39,9 +39,13 @@ impl RackDspNode for LfoModule {
         let freq = 0.01 * 2.0_f32.powf(rate * 10.0);
         self.phase = (self.phase + freq / self.sample_rate).fract();
 
-        let val = (self.phase * 2.0 * std::f32::consts::PI).sin();
-        outputs[0] = val * amt * 5.0; // TRI/SINE
-        outputs[1] = (if self.phase < 0.5 { 1.0 } else { -1.0 }) * amt * 5.0; // SQUARE
+        let sin_val = (self.phase * 2.0 * std::f32::consts::PI).sin() * amt * 5.0;
+        let sq_val = (if self.phase < 0.5 { 1.0 } else { -1.0 }) * amt * 5.0;
+
+        for v in 0..16 {
+            outputs[0 * 16 + v] = sin_val; // TRI/SINE Port 0
+            outputs[1 * 16 + v] = sq_val; // SQUARE Port 1
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -55,7 +59,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "LFO", "MOD"],
         params: &[
             ParamDescriptor {
                 name: "RATE",

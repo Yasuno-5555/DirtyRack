@@ -31,11 +31,14 @@ impl RackDspNode for MixerModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let mut mixed = 0.0;
-        for i in 0..4 {
-            mixed += inputs[i] * params[i];
+        for v in 0..16 {
+            let mut mixed = 0.0;
+            for i in 0..4 {
+                // inputs[i * 16 + v] refers to port i, voice v
+                mixed += inputs[i * 16 + v] * params[i];
+            }
+            outputs[v] = mixed * params[4]; // MASTER
         }
-        outputs[0] = mixed * params[4]; // MASTER
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -49,7 +52,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "MIX", "UTL"],
         params: &[
             ParamDescriptor {
                 name: "VOL 1",

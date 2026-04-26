@@ -2,21 +2,22 @@
 
 DirtyRack employs a multi-layered architecture designed to balance deterministic audio computation with asynchronous visual projection.
 
-## 1. SIMD-Poly DSP Engine (`dirtyrack-modules`)
+## 1. Gehenna Engine: Parallel Deterministic DSP (`dirtyrack-modules`)
 
-The heart of the system, responsible for all acoustic operations.
+The second-generation engine, responsible for all acoustic operations with bit-perfect reproducibility.
 
-- **16-Channel Massive Polyphony**: Native support for VCV Rack-compatible 16-channel multiplexed cables. High-density polyphonic operations are executed in parallel using SIMD (`wide::f32x4` x4) or optimizations like AVX-512.
-- **No-Alloc Process Loop**: Completely eliminates memory allocation within the audio callback. All buffers are pre-allocated during initialization.
-- **Deterministic Math**: To eliminate differences between platforms, all mathematical functions use software implementations from `libm` or deterministic polynomial approximations.
+- **16-Channel SIMD Polyphony**: Native support for VCV Rack-compatible 16-channel multiplexed cables. High-density polyphonic operations are executed in parallel using SIMD (`wide::f32x4` x4).
+- **Deterministic Voice Drift**: A specialized drift engine simulates analog instability (1/f noise) deterministically. The same seed produces the exact same "analog personality" across all instances.
+- **No-Alloc Process Loop**: Completely eliminates memory allocation within the audio callback. Uses pre-allocated topological buffers.
 
-## 2. The Graphical Projector & Observation Layer (`dirtyrack-gui`)
+## 2. Forensic Observation & MRI Layer (`dirtyrack-gui`)
 
-The GUI acts as a projector displaying the "shadows" of the audio engine and as a "microscope" for dissecting its interior.
+The GUI acts as a "Medical Projector" for dissecting the signal chain.
 
-- **Triple-Buffer Sync**: Uses the `triple_buffer` crate. The audio thread writes the latest visual state (LED levels, waveforms) along with `ForensicData` (forensic data).
-- **Forensic Observation**: Asynchronously monitors the thermal state, drift, and individual variances of each node. It visualizes the inner depths without compromising audio real-time performance.
-- **Lock-Free Topology Updates**: Patch changes are sent to the audio thread via `crossbeam-channel` and applied just before the next sample.
+- **Triple-Buffer Visual Projection**: The engine writes `VisualSnapshot` data including peak levels, clipping counts, DC offsets, and energy density.
+- **Patch MRI Overlay**: Signal pathologies are projected directly onto module faceplates (Clipping Glow, Heatmaps, Aura).
+- **Explain Why Engine**: A diagnostic system that correlates engine statistics to human-readable reports, identifying issues like feedback runaway or denormal storms.
+- **Provenance Timeline**: Records every committed parameter change and state snapshot into a `CausalityLog` for auditing.
 
 ## 3. Plugin Host Integration (`dirtyrack-plugin`)
 

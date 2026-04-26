@@ -39,16 +39,22 @@ impl RackDspNode for SequencerModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        if self.reset_detector.process(inputs[1]) {
+        let clock_in = inputs[0 * 16]; // Port 0 (CLOCK)
+        let reset_in = inputs[1 * 16]; // Port 1 (RESET)
+
+        if self.reset_detector.process(reset_in) {
             self.current_step = 0;
         }
 
-        if self.clock_detector.process(inputs[0]) {
+        if self.clock_detector.process(clock_in) {
             self.current_step = (self.current_step + 1) % 8;
         }
 
         let step_val = params[self.current_step];
-        outputs[0] = if step_val > 0.5 { 5.0 } else { 0.0 };
+        let gate = if step_val > 0.5 { 5.0 } else { 0.0 };
+        for v in 0..16 {
+            outputs[v] = gate;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -62,7 +68,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 12,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "SEQ", "UTL"],
         params: &[
             ParamDescriptor {
                 name: "S1",

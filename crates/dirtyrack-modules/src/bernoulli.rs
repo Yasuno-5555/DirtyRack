@@ -28,6 +28,10 @@ impl BernoulliModule {
 }
 
 impl RackDspNode for BernoulliModule {
+    fn randomize(&mut self, seed: u64) {
+        self.rng = ChaCha8Rng::seed_from_u64(seed);
+    }
+
     fn process(
         &mut self,
         inputs: &[f32],
@@ -35,20 +39,25 @@ impl RackDspNode for BernoulliModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        let trig_in = inputs[1];
         let prob = params[0].clamp(0.0, 1.0);
 
-        if self.trigger.process(trig_in) {
-            self.last_choice = self.rng.gen_bool(prob as f64);
-        }
+        for v in 0..16 {
+            let input = inputs[0 * 16 + v];
+            let trig_in = inputs[1 * 16 + v];
 
-        if !self.last_choice {
-            outputs[0] = input;
-            outputs[1] = 0.0;
-        } else {
-            outputs[0] = 0.0;
-            outputs[1] = input;
+            if self.trigger.process(trig_in) {
+                // TODO: In a more polyphonic-friendly version, we'd need 16 trigger detectors and 16 RNGs/seeds.
+                // For now, we use one detector but update the choice for all voices or just this sample.
+                self.last_choice = self.rng.gen_bool(prob as f64);
+            }
+
+            if !self.last_choice {
+                outputs[0 * 16 + v] = input;
+                outputs[1 * 16 + v] = 0.0;
+            } else {
+                outputs[0 * 16 + v] = 0.0;
+                outputs[1 * 16 + v] = input;
+            }
         }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {

@@ -34,15 +34,20 @@ impl RackDspNode for ClockModule {
         let freq = bpm / 60.0;
 
         let prev_phase = self.phase;
-        self.phase = (self.phase + freq as f64 * ctx.sample_time as f64).fract();
+        self.phase = (self.phase + (freq / ctx.sample_rate) as f64).fract();
 
         // 5ms pulse
-        outputs[0] = if self.phase < (freq as f64 * 0.005) {
+        let clk_val = if self.phase < (freq as f64 * 0.005) {
             5.0
         } else {
             0.0
         };
-        outputs[1] = if self.phase < prev_phase { 5.0 } else { 0.0 }; // RESET at start of loop
+        let reset_val = if self.phase < prev_phase { 5.0 } else { 0.0 };
+
+        for v in 0..16 {
+            outputs[0 * 16 + v] = clk_val;
+            outputs[1 * 16 + v] = reset_val;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -56,7 +61,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "CLK", "UTL"],
         params: &[ParamDescriptor {
             name: "BPM",
             kind: ParamKind::Knob,

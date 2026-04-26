@@ -50,9 +50,15 @@ impl RackDspNode for ChaosModule {
         self.z += dz * self.dt * speed;
 
         // Scaling to Eurorack levels (+/- 5V)
-        outputs[0] = self.x * 0.2;
-        outputs[1] = self.y * 0.2;
-        outputs[2] = (self.z - 25.0) * 0.2;
+        let x_out = self.x * 0.2;
+        let y_out = self.y * 0.2;
+        let z_out = (self.z - 25.0) * 0.2;
+
+        for v in 0..16 {
+            outputs[0 * 16 + v] = x_out;
+            outputs[1 * 16 + v] = y_out;
+            outputs[2 * 16 + v] = z_out;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self

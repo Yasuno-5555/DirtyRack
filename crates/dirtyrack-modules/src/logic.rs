@@ -25,13 +25,15 @@ impl RackDspNode for LogicModule {
         _params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let a = inputs[0] > crate::signal::GATE_THRESHOLD;
-        let b = inputs[1] > crate::signal::GATE_THRESHOLD;
+        for v in 0..16 {
+            let a = inputs[0 * 16 + v] > crate::signal::GATE_THRESHOLD;
+            let b = inputs[1 * 16 + v] > crate::signal::GATE_THRESHOLD;
 
-        outputs[0] = if a && b { 5.0 } else { 0.0 }; // AND
-        outputs[1] = if a || b { 5.0 } else { 0.0 }; // OR
-        outputs[2] = if a ^ b { 5.0 } else { 0.0 }; // XOR
-        outputs[3] = if !a { 5.0 } else { 0.0 }; // NOT A
+            outputs[0 * 16 + v] = if a && b { 5.0 } else { 0.0 }; // AND
+            outputs[1 * 16 + v] = if a || b { 5.0 } else { 0.0 }; // OR
+            outputs[2 * 16 + v] = if a ^ b { 5.0 } else { 0.0 }; // XOR
+            outputs[3 * 16 + v] = if !a { 5.0 } else { 0.0 }; // NOT A
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -45,7 +47,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "UTL", "LOGIC"],
         params: &[],
         ports: &[
             PortDescriptor {

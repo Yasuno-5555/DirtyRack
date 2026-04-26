@@ -18,15 +18,21 @@ impl RackDspNode for OutputModule {
     fn process(
         &mut self,
         inputs: &[f32],
-        _outputs: &mut [f32],
+        outputs: &mut [f32],
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let _in_left = inputs[0];
-        let _in_right = inputs[1];
-        let _master = params[0];
+        let master = params[0];
 
-        // 実際にはオーディオスレッドの最終バッファに書き込む
+        for i in 0..16 {
+            let l = inputs[i] * master;
+            let r = inputs[16 + i] * master;
+
+            // Soft-clipping limiter (tanh) to prevent digital harshness
+            // We scale by 0.2 to give some headroom before saturation kicks in
+            outputs[i] = libm::tanhf(l * 0.2) * 5.0;
+            outputs[16 + i] = libm::tanhf(r * 0.2) * 5.0;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -65,6 +71,20 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
                 signal_type: SignalType::Audio,
                 max_channels: 1,
                 position: [0.7, 0.8],
+            },
+            PortDescriptor {
+                name: "OUT_L",
+                direction: PortDirection::Output,
+                signal_type: SignalType::Audio,
+                max_channels: 1,
+                position: [0.0, 0.0],
+            },
+            PortDescriptor {
+                name: "OUT_R",
+                direction: PortDirection::Output,
+                signal_type: SignalType::Audio,
+                max_channels: 1,
+                position: [0.0, 0.0],
             },
         ],
         factory: |sr| Box::new(OutputModule::new(sr)),

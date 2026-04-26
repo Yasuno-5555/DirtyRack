@@ -18,6 +18,8 @@ pub struct ModuleVisualState {
     pub scope_data: Vec<f32>,
     /// 鑑識データ (Drift Inspector 用)
     pub forensic: Option<dirtyrack_sdk::ForensicData>,
+    /// 変調後のパラメータ値 (Forensic View用)
+    pub modulated_params: Option<Vec<f32>>,
 }
 
 /// ラック全体の視覚的スナップショット

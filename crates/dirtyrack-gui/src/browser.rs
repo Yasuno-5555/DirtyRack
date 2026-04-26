@@ -25,17 +25,25 @@ pub fn draw_browser(
             ui.horizontal(|ui| {
                 ui.label("🔍");
                 ui.text_edit_singleline(search_query);
+                if ui.button("Clear").clicked() {
+                    search_query.clear();
+                }
             });
             ui.separator();
 
             // Category buttons
             ui.horizontal_wrapped(|ui| {
                 let categories = [
-                    "OSC", "FLT", "AMP", "ENV", "LFO", "SEQ", "MIX", "CLK", "UTL",
+                    "OSC", "FLT", "AMP", "ENV", "LFO", "SEQ", "MIX", "CLK", "UTL", "FX",
                 ];
                 for label in categories {
-                    if ui.selectable_label(false, label).clicked() {
-                        *search_query = label.to_string();
+                    let is_selected = search_query.to_uppercase() == label;
+                    if ui.selectable_label(is_selected, label).clicked() {
+                        if is_selected {
+                            search_query.clear();
+                        } else {
+                            *search_query = label.to_string();
+                        }
                     }
                 }
             });

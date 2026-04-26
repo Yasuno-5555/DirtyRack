@@ -31,11 +31,13 @@ impl RackDspNode for ModMatrixModule {
             *o = 0.0;
         }
 
-        for src in 0..4 {
-            let src_val = inputs[src];
-            for dst in 0..4 {
-                let depth = params[src * 4 + dst]; // -1.0 .. 1.0
-                outputs[dst] += src_val * depth;
+        for v in 0..16 {
+            for src in 0..4 {
+                let src_val = inputs[src * 16 + v];
+                for dst in 0..4 {
+                    let depth = params[src * 4 + dst]; // -1.0 .. 1.0
+                    outputs[dst * 16 + v] += src_val * depth;
+                }
             }
         }
     }

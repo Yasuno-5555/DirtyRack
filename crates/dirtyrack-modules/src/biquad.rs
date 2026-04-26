@@ -12,20 +12,16 @@ use crate::signal::{
 
 pub struct BiquadModule {
     sample_rate: f32,
-    x1: f32,
-    x2: f32,
-    y1: f32,
-    y2: f32,
+    s1: [f32; 16],
+    s2: [f32; 16],
 }
 
 impl BiquadModule {
     pub fn new(sample_rate: f32) -> Self {
         Self {
             sample_rate,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            s1: [0.0; 16],
+            s2: [0.0; 16],
         }
     }
 }
@@ -38,60 +34,37 @@ impl RackDspNode for BiquadModule {
         params: &[f32],
         _ctx: &RackProcessContext,
     ) {
-        let input = inputs[0];
-        let cutoff = params[0].max(0.01).min(10.0); // 0..10V -> Hz
-        let res = params[1].max(0.01).min(10.0);
+        let cutoff_knob = params[0].max(0.01).min(10.0);
+        let res_knob = params[1].max(0.0).min(0.99);
         let mode = params[2] as usize;
 
-        // Hz conversion: 10V = 20kHz, 0V = 20Hz (exponential)
-        let freq = 20.0 * libm::powf(1000.0, cutoff / 10.0);
-        let q = 0.5 + res * 2.0;
+        // Common coefficients
+        let freq = 20.0 * libm::powf(1000.0, cutoff_knob / 10.0);
+        let g = libm::tanf(std::f32::consts::PI * freq / self.sample_rate);
+        let k = 2.0 * (1.0 - res_knob);
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let a2 = g * a1;
+        let a3 = g * a2;
 
-        let omega = 2.0 * std::f32::consts::PI * freq / self.sample_rate;
-        let sin_w = libm::sinf(omega);
-        let cos_w = libm::cosf(omega);
-        let alpha = sin_w / (2.0 * q);
+        for v in 0..16 {
+            let input = inputs[0 * 16 + v];
+            
+            let v3 = input - self.s2[v];
+            let v1 = a1 * self.s1[v] + a2 * v3;
+            let v2 = self.s2[v] + a2 * self.s1[v] + a3 * v3;
+            
+            self.s1[v] = 2.0 * v1 - self.s1[v];
+            self.s2[v] = 2.0 * v2 - self.s2[v];
 
-        let (b0, b1, b2, a0, a1, a2) = match mode {
-            0 => {
-                // LP
-                let b1 = 1.0 - cos_w;
-                let b0 = b1 * 0.5;
-                (b0, b1, b0, 1.0 + alpha, -2.0 * cos_w, 1.0 - alpha)
-            }
-            1 => {
-                // HP
-                let b1 = -(1.0 + cos_w);
-                let b0 = -b1 * 0.5;
-                (b0, b1, b0, 1.0 + alpha, -2.0 * cos_w, 1.0 - alpha)
-            }
-            2 => {
-                // BP
-                (alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cos_w, 1.0 - alpha)
-            }
-            _ => {
-                // Notch
-                (
-                    1.0,
-                    -2.0 * cos_w,
-                    1.0,
-                    1.0 + alpha,
-                    -2.0 * cos_w,
-                    1.0 - alpha,
-                )
-            }
-        };
+            let out = match mode {
+                0 => v2,               // LP
+                1 => input - k*v1 - v2, // HP
+                2 => v1,               // BP
+                _ => input - k*v1,      // Notch
+            };
 
-        let out = (b0 / a0) * input + (b1 / a0) * self.x1 + (b2 / a0) * self.x2
-            - (a1 / a0) * self.y1
-            - (a2 / a0) * self.y2;
-
-        self.x2 = self.x1;
-        self.x1 = input;
-        self.y2 = self.y1;
-        self.y1 = out;
-
-        outputs[0] = out;
+            outputs[0 * 16 + v] = out;
+        }
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
@@ -105,7 +78,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),
-        tags: &["Builtin"],
+        tags: &["Builtin", "FLT", "VCF"],
         params: &[
             ParamDescriptor {
                 name: "CUTOFF",
@@ -122,7 +95,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
                 kind: ParamKind::Knob,
                 response: ParamResponse::Smoothed { ms: 10.0 },
                 min: 0.0,
-                max: 10.0,
+                max: 1.0,
                 default: 0.5,
                 position: [0.5, 0.4],
                 unit: "Q",
@@ -143,14 +116,14 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
                 name: "IN",
                 direction: PortDirection::Input,
                 signal_type: SignalType::Audio,
-                max_channels: 1,
+                max_channels: 16,
                 position: [0.2, 0.9],
             },
             PortDescriptor {
                 name: "OUT",
                 direction: PortDirection::Output,
                 signal_type: SignalType::Audio,
-                max_channels: 1,
+                max_channels: 16,
                 position: [0.8, 0.9],
             },
         ],

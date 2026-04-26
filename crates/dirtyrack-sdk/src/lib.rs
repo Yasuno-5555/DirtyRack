@@ -75,6 +75,20 @@ pub struct ForensicData {
     pub current_drift: [f32; 16],
     pub thermal_heat: [f32; 16],
     pub internal_state_summary: String,
+    /// 16ボイス分の信号履歴 (可視化用)
+    pub signal_trace: Option<Vec<[f32; 16]>>,
+    /// エンジン統計データ
+    pub stats: EngineStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+pub struct EngineStats {
+    pub peak_db: f32,
+    pub clipping_count: u64,
+    pub denormal_count: u64,
+    pub dc_offset: f32, // Moving average
+    pub energy_delta: f32, // Change in energy
+    pub aliasing_floor_db: f32,
 }
 
 impl Default for ForensicData {
@@ -84,6 +98,8 @@ impl Default for ForensicData {
             current_drift: [0.0; 16],
             thermal_heat: [0.0; 16],
             internal_state_summary: String::new(),
+            signal_trace: None,
+            stats: EngineStats::default(),
         }
     }
 }
@@ -145,6 +161,9 @@ pub trait RackDspNode: Send + Sync {
         _ctx: &RackProcessContext,
     ) {
     }
+
+    fn reset(&mut self) {}
+    fn randomize(&mut self, _seed: u64) {}
 
     fn extract_state(&self) -> Option<Vec<u8>> {
         None

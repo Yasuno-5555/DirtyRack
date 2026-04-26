@@ -89,8 +89,9 @@ impl OfflineRenderer {
             r_b.process_sample(&ctx);
 
             // Compare outputs of all nodes that exist in both runners
-            for (id_a, _) in r_a.nodes_mut() {
-                if let (Some(out_a), Some(out_b)) = (r_a.node_outputs.get(id_a), r_b.node_outputs.get(id_a)) {
+            let ids: Vec<_> = r_a.nodes_mut().iter().map(|(id, _)| *id).collect();
+            for id_a in ids {
+                if let (Some(out_a), Some(out_b)) = (r_a.node_outputs.get(&id_a), r_b.node_outputs.get(&id_a)) {
                     for (p_idx, (v_a, v_b)) in out_a.iter().zip(out_b.iter()).enumerate() {
                         let diff_l = (v_a[0] - v_b[0]).abs();
                         let diff_r = (v_a[1] - v_b[1]).abs();
@@ -99,7 +100,7 @@ impl OfflineRenderer {
                         if mag > 1e-7 { // Tolerance for floating point
                             map.add_point(DivergencePoint {
                                 sample_index: i as u64,
-                                node_id: *id_a,
+                                node_id: id_a,
                                 node_name: "Unknown".into(), // Should fetch from graph
                                 port_idx: p_idx,
                                 expected_value: *v_a,
