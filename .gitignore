@@ -2,3 +2,7 @@
 .dirtydata
 **/*.rs.bk
 .DS_Store
+/dist
+/DirtyRack.app
+/DirtyRack.clap
+/DirtyRack.vst3

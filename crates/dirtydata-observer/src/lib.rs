@@ -8,6 +8,9 @@
 //!
 //! これは `dirtydata doctor` や `status` の基礎データとなる。
 
+pub mod divergence;
+
+pub use divergence::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

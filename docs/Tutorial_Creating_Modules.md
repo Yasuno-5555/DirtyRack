@@ -1,21 +1,21 @@
-# Tutorial: 初めての DirtyRack モジュール作成
+# Tutorial: Creating Your First DirtyRack Module
 
-このチュートリアルでは、入力を 2倍にするシンプルな「Gain」モジュールを作成しながら、DirtyRack エコシステムへの参加方法を学びます。
+In this tutorial, you will learn how to participate in the DirtyRack ecosystem by creating a simple "Gain" module that doubles the input signal.
 
-## Step 1: プロジェクトの作成
+## Step 1: Create the Project
 
-まず、新しい Rust ライブラリプロジェクトを作成します。
+First, create a new Rust library project.
 
 ```bash
 cargo new my-dirty-module --lib
 cd my-dirty-module
 ```
 
-## Step 2: Cargo.toml の設定
+## Step 2: Configure Cargo.toml
 
-DirtyRack は動的ライブラリ（.so, .dll, .dylib）をロードします。また、SDK を依存関係に追加する必要があります。
+DirtyRack loads dynamic libraries (.so, .dll, .dylib). You also need to add the SDK to your dependencies.
 
-`Cargo.toml` を開き、以下のように編集してください：
+Open `Cargo.toml` and edit it as follows:
 
 ```toml
 [package]
@@ -24,24 +24,25 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-# 重要: 動的ライブラリとしてビルドすることを指定します
+# IMPORTANT: Specify that the project should be built as a dynamic library
 crate-type = ["cdylib"]
 
 [dependencies]
-# 安定した SDK を使用します
+# Use the stable SDK
 dirtyrack-sdk = "0.1" 
 ```
 
-## Step 3: コードの実装 (`src/lib.rs`)
+## Step 3: Implement the Code (`src/lib.rs`)
 
-`src/lib.rs` の中身をすべて消して、以下の「Gain モジュール」のコードを貼り付けてください。
+Delete everything in `src/lib.rs` and paste the following code for the "Gain Module."
 
 ```rust
 use dirtyrack_sdk::*;
 
-// 1. モジュールのデータ構造を定義
+// 1. Define the module's data structure
 struct MyGainModule {
-    // process ループ内でのメモリ確保は禁止なので、必要なバッファはここで持っておく
+    // Memory allocation within the process loop is prohibited, 
+    // so any necessary buffers must be held here.
 }
 
 impl MyGainModule {
@@ -50,20 +51,20 @@ impl MyGainModule {
     }
 }
 
-// 2. 音響処理ロジックの実装
+// 2. Implement the DSP logic
 impl RackDspNode for MyGainModule {
     fn process(
         &mut self,
-        inputs: &[f32],      // 入力電圧の配列 (16ボイス分)
-        outputs: &mut [f32], // 出力電圧の配列 (16ボイス分)
-        params: &[f32],      // ノブの値の配列
-        ctx: &RackProcessContext, // 経年劣化や個体差などの情報
+        inputs: &[f32],      // Array of input voltages (16 voices)
+        outputs: &mut [f32], // Array of output voltages (16 voices)
+        params: &[f32],      // Array of knob values
+        ctx: &RackProcessContext, // Information on aging, imperfections, etc.
     ) {
         let gain_knob = params[0];
         
-        // DirtyRack は常に 16ch ポリフォニックです。
+        // DirtyRack is always 16ch polyphonic.
         for i in 0..16 {
-            // ctx.imperfection からボイス固有の個体差を取得
+            // Retrieve voice-specific personality from ctx.imperfection
             let p_offset = ctx.imperfection.personality[i] * 0.05;
             let gain = (gain_knob + p_offset).max(0.0);
             
@@ -72,72 +73,72 @@ impl RackDspNode for MyGainModule {
     }
 }
 
-// 3. モジュールの「顔（記述子）」を定義
+// 3. Define the module's "face" (descriptor)
 fn my_descriptor() -> &'static ModuleDescriptor {
     &ModuleDescriptor {
-        id: "com.yourname.gain", // 世界でユニークなID
-        name: "My First Gain",   // ブラウザに表示される名前
+        id: "com.yourname.gain", // Globally unique ID
+        name: "My First Gain",   // Name displayed in the browser
         manufacturer: "Independent Crafter",
-        hp_width: 4,             // モジュールの横幅 (1HP = 5.08mm)
+        hp_width: 4,             // Module width (1HP = 5.08mm)
         
-        // --- ここで見た目をカスタマイズ！ ---
+        // --- Customize the look! ---
         visuals: ModuleVisuals {
-            background_color: [50, 60, 70], // 深みのあるブルーグレー
-            text_color: [255, 255, 255],    // 白色のテキスト
-            accent_color: [0, 255, 150],    // 鮮やかなエメラルドのアクセント
+            background_color: [50, 60, 70], // Deep blue-grey
+            text_color: [255, 255, 255],    // White text
+            accent_color: [0, 255, 150],    // Vivid emerald accent
             panel_texture: PanelTexture::MatteBlack,
         },
         
-        // パラメータ（ノブ）の定義
+        // Parameter (knob) definitions
         params: &[
             ParamDescriptor {
                 name: "GAIN",
                 kind: ParamKind::Knob,
                 response: ParamResponse::Immediate,
                 min: 0.0, max: 2.0, default: 1.0,
-                position: [0.5, 0.5], // フェースプレート上の位置 [x, y]
+                position: [0.5, 0.5], // Position on the faceplate [x, y]
                 unit: "x",
             },
         ],
         
-        // 入出力ポートの定義
+        // Port (input/output) definitions
         ports: &[
             PortDescriptor { name: "IN", direction: PortDirection::Input, signal_type: SignalType::Audio, position: [0.5, 0.2] },
             PortDescriptor { name: "OUT", direction: PortDirection::Output, signal_type: SignalType::Audio, position: [0.5, 0.8] },
         ],
         
-        // DirtyRack がモジュールを生成するための工場関数
+        // Factory function for DirtyRack to generate the module
         factory: |sr| Box::new(MyGainModule::new(sr)),
     }
 }
 
-// 4. DirtyRack 宇宙へのエクスポート
+// 4. Export to the DirtyRack Universe
 export_dirty_module!(my_descriptor);
 ```
 
-## Step 4: ビルドとインストール
+## Step 4: Build and Install
 
-いよいよビルドです。必ず `--release` をつけて最適化を有効にしてください。
+Now it's time to build. Make sure to use `--release` to enable optimizations.
 
 ```bash
 cargo build --release
 ```
 
-ビルドが成功すると、`target/release/` フォルダの中にライブラリファイルが生成されます：
+If the build is successful, library files will be generated in the `target/release/` folder:
 - macOS: `libmy_dirty_module.dylib`
 - Linux: `libmy_dirty_module.so`
 - Windows: `my_dirty_module.dll`
 
-このファイルを、DirtyRack 本体の実行ファイルと同じ場所にある `modules/` フォルダ（存在しない場合は作成）にコピーしてください。
+Copy this file to the `modules/` folder (create it if it doesn't exist) located in the same directory as the DirtyRack executable.
 
-## Step 5: DirtyRack で確認
+## Step 5: Verify in DirtyRack
 
-DirtyRack を起動し、「Add Module」ブラウザを開くと、あなたの作った **"My First Gain"** がリストに並んでいるはずです！
+Launch DirtyRack and open the "Add Module" browser. Your **"My First Gain"** should be listed there!
 
 ---
 
-## 次のステップへのヒント
+## Tips for Next Steps
 
-- **不完全さの調律**: `ctx.imperfection` を使い、ボイスごとに微妙に異なるキャラクターを与えましょう。
-- **鑑識の透明性**: `get_forensic_data` を実装して、あなたのモジュールの「秘密」をユーザーがインスペクタで覗けるようにしましょう。
-- **憲法**: 迷ったら `docs/SDK_Documentation.md` の「憲法」に立ち返りましょう。
+- **Tuning Imperfections**: Use `ctx.imperfection` to give each voice a subtly different character.
+- **Forensic Transparency**: Implement `get_forensic_data` so users can peek at your module's "secrets" through the inspector.
+- **The Constitution**: When in doubt, return to the "Constitution" in `docs/SDK_Documentation.md`.

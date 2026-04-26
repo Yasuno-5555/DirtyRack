@@ -1,24 +1,24 @@
 # DirtyRack Third-Party Module SDK Documentation
 
-DirtyRack の「決定論的宇宙」へようこそ。この SDK は、ビット単位で再現可能なモジュラーシンセ・モジュールを開発するための道具箱です。
+Welcome to the "Deterministic Universe" of DirtyRack. This SDK is a toolbox for developing modular synth modules that are reproducible down to the bit level.
 
-## クイックスタート
+## Quick Start
 
-まずは[チュートリアル：初めてのモジュール作成](Tutorial_Creating_Modules.md)を読んで、5分でモジュールをビルドしてみましょう。
+Read the [Tutorial: Creating Your First Module](Tutorial_Creating_Modules.md) and build your first module in 5 minutes.
 
-## 1. 開発の憲法 (The Constitution)
+## 1. The Constitution
 
-DirtyRack モジュールを書く際、以下の制約は絶対です：
+The following constraints are absolute when writing DirtyRack modules:
 
-- **完全な決定論**: 同じ入力とシードからは、常に同じ出力を生成せよ。`std::time` や `/dev/random` に頼るな。
-- **NO-ALLOC**: `process` ループ内での `Vec`, `Box`, `HashMap` などの動的メモリ確保を禁止する。
-- **libm の使用**: 数学関数には `std` の代わりに `libm` を使用せよ（プラットフォーム間の浮動小数点の挙動を一致させるため）。
-- **Imperfection Integration**: `RackProcessContext` から提供される `ImperfectionData` を用い、16 ボイスそれぞれに適切な「揺らぎ」と「個性」を宿せ。
-- **Forensic Transparency**: `get_forensic_data` を実装し、モジュールの内部状態を GUI に公開せよ。
+- **Complete Determinism**: Always generate the same output from the same input and seed. Do not rely on `std::time` or `/dev/random`.
+- **NO-ALLOC**: Dynamic memory allocation (e.g., `Vec`, `Box`, `HashMap`) is prohibited within the `process` loop.
+- **Use libm**: Use `libm` instead of `std` for mathematical functions to ensure consistent floating-point behavior across platforms.
+- **Imperfection Integration**: Use the `ImperfectionData` provided by `RackProcessContext` to instill appropriate "fluctuation" and "individuality" into each of the 16 voices.
+- **Forensic Transparency**: Implement `get_forensic_data` to expose the module's internal state to the GUI.
 
-## 2. コア・インターフェース
+## 2. Core Interface
 
-すべてのモジュールは `RackDspNode` トレイトを実装します。
+All modules must implement the `RackDspNode` trait.
 
 ```rust
 pub trait RackDspNode: Send + Sync {
@@ -30,21 +30,21 @@ pub trait RackDspNode: Send + Sync {
         ctx: &RackProcessContext,
     );
 
-    /// 鑑識用データの報告 (Drift Inspector 用)
+    /// Reporting forensic data (for Drift Inspector)
     fn get_forensic_data(&self) -> Option<ForensicData> { None }
     
-    // ... その他の永続化用メソッド
+    // ... other methods for persistence
 }
 ```
 
 ### RackProcessContext
-実行時の重要なメタデータが含まれます。
-- `aging`: グローバルな経年劣化パラメータ (0.0..1.0)。
-- `imperfection`: 16 ボイス分の `personality` (静的個体差) と `drift` (動的熱揺らぎ)。
+Contains critical metadata during execution:
+- `aging`: Global aging parameter (0.0..1.0).
+- `imperfection`: `personality` (static individual difference) and `drift` (dynamic thermal fluctuation) for 16 voices.
 
-## 3. 動的ロードの仕組み
+## 3. Dynamic Loading Mechanism
 
-DirtyRack は `get_dirty_module_descriptor` というシンボルを探します。`export_dirty_module!` マクロを使用して、自身を登録してください。
+DirtyRack looks for a symbol named `get_dirty_module_descriptor`. Use the `export_dirty_module!` macro to register your module.
 
 ```rust
 use dirtyrack_sdk::*;
@@ -67,15 +67,23 @@ fn my_descriptor() -> &'static ModuleDescriptor {
 export_dirty_module!(my_descriptor);
 ```
 
-## 4. 推奨ワークフロー
+## 4. Recommended Workflow
 
-1. `dirtyrack-sdk` を `Cargo.toml` に追加。
-2. `crate-type = ["cdylib"]` を指定。
-3. `cargo build --release` でビルド。
-4. 生成された `.so`/`.dll`/`.dylib` を DirtyRack の `modules` フォルダに配置。
+1. Add `dirtyrack-sdk` to your `Cargo.toml`.
+2. Specify `crate-type = ["cdylib"]`.
+3. Build with `cargo build --release`.
+4. Place the generated `.so`/`.dll`/`.dylib` into DirtyRack's `modules` folder.
+
+## 5. Auditing & Attribution
+
+To support DirtyRack's powerful forensic auditing features, module developers should consider the following:
+
+- **Parameter Traceability**: All module parameters must be manipulated through the `params` defined in `get_dirty_module_descriptor`. This ensures that `Intent-to-Sound Trace` functions automatically.
+- **Providing Forensic Data**: Implement `get_forensic_data` to expose internal non-linear states (e.g., filter saturation levels, oscillator phase drift). This is the key to "cause identification" when deterministic differences occur.
+- **Eliminating Nondeterminism**: Using external time or random values will be recorded as a "reality split" in the `Replay Divergence Map`, destroying the reliability of the patch.
 
 ---
 
 > [!IMPORTANT]
-> 「一人の開発者の非決定性は、パッチ全体のハッシュを破壊する」。
-> 常に再現性を意識してコードを記述してください。
+> "The nondeterminism of a single developer destroys the hash of the entire patch."
+> Always write code with reproducibility in mind.

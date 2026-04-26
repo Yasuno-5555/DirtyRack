@@ -138,6 +138,12 @@ impl Timestamp {
     }
 }
 
+impl Default for Timestamp {
+    fn default() -> Self {
+        Self::now()
+    }
+}
+
 // ──────────────────────────────────────────────
 // §4.2 Execution Domains
 // "Background は Sample を絶対に block してはならない。"

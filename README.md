@@ -2,68 +2,70 @@
 
 **Deterministic Eurorack Simulator & Modular DSP Engine**
 
-DirtyRack は、ビット単位の再現性と物理的なモジュラー操作を融合させた、**高精度決定論的ユーロラック・シミュレータ**です。アナログの「カオス」や「揺らぎ」を愛しながらも、デジタルの「説明責任（Accountability）」を追求するアーティストとエンジニアのために設計されました。
+DirtyRack is a **high-precision deterministic Eurorack simulator** that merges bit-perfect reproducibility with physical modular interaction. It is designed for artists and engineers who love the "chaos" and "fluctuations" of analog but demand digital "Accountability."
 
-単なるシンセサイザーではなく、パッチの全状態、演奏のジェスチャー、そして時間の流れを完全に固定し、ハッシュ値で検証可能にする **Forensic Audio Engine** です。
+More than just a synthesizer, it is a **Forensic Audio Engine** that completely freezes the entire state of a patch, performance gestures, and the flow of time, making them verifiable via hash values.
 
-## 核心的設計思想
+## Core Design Philosophy
 
-*   **決定論的カオス**: カオスアトラクタや非線形フィードバックを扱いながら、同一シード・同一入力からは常に 1bit の狂いもない出力を保証する。
-*   **Massive Polyphony (16ch)**: VCV Rack 互換の 16 チャンネル・ポリフォニック・ケーブルを標準搭載。一本の結線がオーケストラのような密度を生む。
-*   **Audio Sanctity (聖域)**: オーディオ計算スレッドは 100% ロックフリー。UI 負荷やファイル IO によって音が途切れることを物理的に許さない。
-*   **Forensic Observation**: 「なぜこの音になったのか」を証明する鑑識レイヤー。Drift Inspector により、内部の熱状態や個体差をリアルタイムに解剖可能。
-*   **Open Ecology**: サードパーティが `dirtyrack-sdk` を用いて、独自の決定論的モジュールを Rust で開発・配布可能。
+*   **Deterministic Chaos**: Handles chaos attractors and non-linear feedback while guaranteeing 1-bit accuracy for the same seed and input.
+*   **Massive Polyphony (16ch)**: Native support for VCV Rack-compatible 16-channel polyphonic cables. A single connection yields orchestral density.
+*   **Audio Sanctity**: The audio processing thread is 100% lock-free. It physically prevents glitches caused by UI load or file I/O.
+*   **Forensic Observation**: A forensic layer that proves "why this sound happened." The Drift Inspector allows real-time dissection of internal thermal states and individual component variances.
+*   **Open Ecology**: Third parties can develop and distribute their own deterministic modules in Rust using the `dirtyrack-sdk`.
 
-## 主な機能
+## Key Features
 
-1.  **Massive Polyphonic DSP**: 全モジュールが 16 ボイス独立処理に対応。一本のケーブルでポリフォニックな表現を完結。
-2.  **Analog Imperfection Layer**: 決定論的に再現される「機材の個性（Personality）」と「熱ドリフト」。アナログ特有の不安定さを科学的にエミュレート。
-3.  **Aging Knob**: 新品の輝きから 20 年物の退廃までを、グローバルな「経年劣化」ノブ一つで制御。
-4.  **Forensic Inspector**: モジュールの内部状態を詳細に分析。ピッチのズレやフィルターの飽和の原因を客観的データとして可視化。
-5.  **Triple-Buffer Visuals**: オーディオスレッドの神聖さを保ちつつ、60fps+ の滑らかな波形投影と LED レベル表示を実現。
-6.  **MIDI-CV Bridge**: 外部 MIDI 信号をポリフォニックな 1V/Oct 信号へと変換し、ハードウェアとソフトウェアの境界を消失させる。
+1.  **Massive Polyphonic DSP**: All modules support independent 16-voice processing. Complete polyphonic expression with a single cable.
+2.  **Analog Imperfection Layer**: Deterministically reproduced "Equipment Personality" and "Thermal Drift." Scientifically emulates the instability unique to analog.
+3.  **Aging Knob**: Control everything from "factory-new" shine to 20 years of "vintage decay" with a single global knob.
+4.  **Forensic Inspector**: Deeply analyze the internal state of modules. Visualize the causes of pitch drift or filter saturation as objective data.
+5.  **Triple-Buffer Visuals**: Maintains the sanctity of the audio thread while delivering smooth 60fps+ waveform projections and LED level displays.
+6.  **MIDI-CV Bridge**: Converts external MIDI signals into polyphonic 1V/Oct signals, vanishing the boundary between hardware and software.
+7.  **Deterministic Auditing (New)**: Features a Divergence Map to detect "reality splits" at sample precision, and an Intent-to-Sound Trace to track the causality of sound.
 
 ### Distribution & Formats
 
-- **Standalone App**: macOS 用 `.app` バンドルを提供。`/Applications` にドラッグ＆ドロップで即座に利用可能。
-- **VST3 / CLAP Plugin**: DAW (Ableton, Bitwig, Reaper, etc.) 内で 16ch ポリフォニック・モジュラーとして動作。
-- **CLI Tool**: 決定論的なオフラインレンダリングとハッシュ検証のためのコマンドライン・インターフェース。
+- **Standalone App**: Provides a `.app` bundle for macOS. Ready to use via drag-and-drop to `/Applications`.
+- **VST3 / CLAP Plugin**: Operates as a 16ch polyphonic modular inside DAWs (Ableton, Bitwig, Reaper, etc.).
+- **CLI Tool**: A command-line interface for deterministic offline rendering and hash verification.
 
-## クイックスタート
+## Quick Start
 
 ### Standalone (macOS)
 ```bash
-# ルートの DirtyRack.app を /Applications にコピー
+# Copy DirtyRack.app from the root to /Applications
 open ./DirtyRack.app
 ```
 
 ### Plugin Deployment
-ルートに生成された `DirtyRack.clap` をプラグインフォルダに配置してください。
+Place the generated `DirtyRack.clap` from the root into your plugin folder.
 
-**VST3 として使用する場合**:
-1. `DirtyRack.vst3/Contents/MacOS/` というディレクトリ構造を作成。
-2. その中に `DirtyRack.clap` を `DirtyRack` という名前でコピーして配置してください。
+**To use as VST3**:
+1. Create a directory structure: `DirtyRack.vst3/Contents/MacOS/`.
+2. Copy and rename `DirtyRack.clap` to `DirtyRack` inside that directory.
 
-## プロジェクト構造
+## Project Structure
 
 ```text
 DirtyRack/
 ├── crates/
-│   ├── dirtyrack-sdk/      # サードパーティ開発用 SDK。コア・トレイトと SIMD ユーティリティ。
-│   ├── dirtyrack-modules/  # 決定論的 DSP モジュール兵器廠（VCO, VCF, Chaos, etc.）
-│   ├── dirtyrack-gui/      # egui ベースの「プロジェクター」。Triple-Buffer 同期。
-│   └── dirtyrack-core/     # 決定論的基盤。因果関係を管理する DAG エンジン。
-├── docs/                   # SDK ドキュメント、アーキテクチャ、哲学。
-└── modules/                # サードパーティ製動的ライブラリ (.so, .dll) の配置場所。
+│   ├── dirtyrack-sdk/      # SDK for third-party developers. Core traits and SIMD utilities.
+│   ├── dirtyrack-modules/  # Deterministic DSP module arsenal (VCO, VCF, Chaos, etc.)
+│   ├── dirtyrack-gui/      # egui-based "Projector." Triple-Buffer synchronization.
+│   └── dirtyrack-core/     # Deterministic foundation. DAG engine managing causality.
+├── docs/                   # SDK documentation, architecture, philosophy.
+└── modules/                # Directory for third-party dynamic libraries (.so, .dll).
 ```
 
-## ドキュメント
+## Documentation
 
-- [Design Philosophy (設計哲学)](docs/design_philosophy.md)
-- [Architecture (アーキテクチャ)](docs/architecture.md)
-- [SDK Documentation (開発者ガイド)](docs/SDK_Documentation.md)
-- [Creating Your First Module (チュートリアル)](docs/Tutorial_Creating_Modules.md)
+- [Design Philosophy](docs/design_philosophy.md)
+- [Architecture](docs/architecture.md)
+- [SDK Documentation](docs/SDK_Documentation.md)
+- [Creating Your First Module (Tutorial)](docs/Tutorial_Creating_Modules.md)
+- [Japanese README (日本語版)](docs/README_JP.md)
 
-## ライセンス
+## License
 
 MIT License

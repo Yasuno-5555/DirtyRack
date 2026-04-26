@@ -3,6 +3,9 @@
 //! DirtyData において、パッチは単なる状態変更の羅列ではない。
 //! Intent（意図）という上位概念があり、パッチは「それを実現するための Strategy の結果」である。
 
+pub mod attribution;
+
+pub use attribution::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;

@@ -1,44 +1,45 @@
 # DirtyRack Design Philosophy
 
-DirtyRack は単なるモジュラーシンセ・シミュレータではありません。それは、**「デジタルにおける絶対的な決定論」と「アナログにおける官能的な不確実性」を調和させるための実験場**です。
+DirtyRack is more than just a Eurorack simulator. It is an **experimental ground for harmonizing "absolute digital determinism" with "sensual analog uncertainty."**
 
-## 1. 決定論という憲法 (The Constitution of Determinism)
+## 1. The Constitution of Determinism
 
-DirtyRack の宇宙において、偶然は存在しません。
+In the universe of DirtyRack, chance does not exist.
 
-- **再現性の義務**: すべての音、すべての揺らぎは計算可能であり、再現可能です。パッチのハッシュ値が一致すれば、世界中のどのマシンでも、10年後でも、全く同じ音が鳴ることを保証します。
-- **Forensic Validation**: 制作過程のあらゆる瞬間は、科学的な証拠（Forensic Evidence）として記録されます。
+- **Duty of Reproducibility**: Every sound and every fluctuation is computable and reproducible. We guarantee that if the patch hash matches, the exact same sound will be produced on any machine in the world, even ten years from now.
+- **Forensic Validation**: Every moment of the creative process is recorded as scientific evidence (Forensic Evidence).
 
-## 2. 16ボイス・ポリフォニック (Massive Polyphony)
+## 2. Massive Polyphony (16 Voices)
 
-DirtyRack は、一本のケーブルに 16 チャンネルを束ねる「ポリフォニック・ケーブル」を標準としています。
+DirtyRack standardizes "polyphonic cables" that bundle 16 channels into a single connection.
 
-- **信号の多重化**: VCV Rack 互換の 16ch アーキテクチャにより、単一のパッチがオーケストラのような密度を持ちます。
-- **ボイスごとの個性**: 個々のボイスは、同じパラメータであっても、内部的な個体差（Personality）によって異なる振る舞いをします。
+- **Signal Multiplexing**: With a VCV Rack-compatible 16ch architecture, a single patch achieves the density of an orchestra.
+- **Voice-level Individuality**: Individual voices behave differently based on internal component variances (Personality), even with identical parameters.
 
-## 3. 鑑識インフラ (Forensic Instrumentation)
+## 3. Forensic Instrumentation
 
-「なぜこの音になったのか」を科学的に証明すること。これが DirtyRack の Observation Layer の使命です。
+The mission of DirtyRack's Observation Layer is to scientifically prove "why this sound happened."
 
-- **Visual Provenance**: アナログ的な不完全さを「隠れた味」にせず、可視化された「人格」として扱います。Drift Inspector は、内部の熱状態や個体差をリアルタイムに解剖します。
-- **Replay Divergence Map**: 万が一、異なる環境でハッシュが一致しなくなった際、どのノードで「宇宙が分岐したか」を即座に特定し、決定論の崩壊を許しません。
-- **Intent-to-Sound Trace**: すべての音色は、ユーザーの操作意図（Intent）まで遡ることができます。
+- **Visual Provenance**: Analog imperfections are not treated as "hidden flavors" but as visualized "personalities." The Drift Inspector dissects internal thermal states and individual variances in real-time.
+- **Replay Divergence Map (In Production)**: If a hash mismatch occurs due to environmental or branch differences, this tool identifies exactly which node and which sample caused the "reality split." It is a "map" that forbids the collapse of determinism.
+- **Intent-to-Sound Trace (In Production)**: Traces audio artifacts (like clipping or distortion) back to parameter changes, the patches that caused them, and ultimately to the user's operation intent (Intent) or commit hash.
+- **Causal Analysis**: Goes beyond simple A/B comparison to quantitatively analyze the "causal impact" of parameter differences on audio characteristics (such as transients).
 
-## 4. 意図的な不安定性 (Controlled Instability)
+## 4. Controlled Instability
 
-「完璧すぎるデジタル」は、時として音楽的な死を意味します。
+"Perfect digital" can sometimes mean musical death.
 
-- **Aging Knob**: 新品の輝きから 20 年使い古した機材の退廃までを、一つのノブで制御します。ドリフト、リーク、応答遅延のすべてが、決定論的な計算式に基づいて「劣化」します。
-- **Drift as Choice**: アナログ回路の熱雑音や経年変化による揺らぎを、ランダムではなくシードに基づいた「再現可能な揺らぎ」として再定義します。
+- **Aging Knob**: Control everything from "factory-new" shine to 20 years of "vintage decay" with a single knob. Drift, leakage, and response delays all "degrade" based on deterministic formulas.
+- **Drift as Choice**: Redefines the fluctuations caused by thermal noise or component aging in analog circuits as "reproducible fluctuations" based on seeds rather than randomness.
 
-## 5. 開発者への信頼
+## 5. Trust in Developers
 
-SDK を公開し、内部構造を透明にすることは、ユーザーを「消費者」から「創造者」へと変えるための招待状です。
+Publishing the SDK and making the internal structure transparent is an invitation to transform users from "consumers" into "creators."
 
-- **Open Source, Strict Rule**: 自由な発想を歓迎しますが、決定論の憲法を破ることは許されません。この厳しい規律こそが、DirtyRack というプラットフォームの価値を担保します。
+- **Open Source, Strict Rules**: Creative freedom is welcomed, but breaking the Constitution of Determinism is not permitted. This strict discipline is what guarantees the value of the DirtyRack platform.
 
 ---
 
 > [!NOTE]
-> 0 と 1 の冷たい連なりの中に、アナログの熱量を宿すこと。
-> DirtyRack は、その不可能な問いに対する回答です。
+> Infusing the heat of analog into the cold sequences of 0s and 1s.
+> DirtyRack is the answer to that impossible question.
