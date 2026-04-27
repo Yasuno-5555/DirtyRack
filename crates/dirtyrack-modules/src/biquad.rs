@@ -75,6 +75,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_vcf_biquad",
         name: "VCF-2",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),

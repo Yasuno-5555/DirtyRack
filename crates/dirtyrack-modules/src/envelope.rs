@@ -130,6 +130,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_envelope",
         name: "ADSR",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),

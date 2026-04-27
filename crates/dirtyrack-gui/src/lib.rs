@@ -314,11 +314,11 @@ impl eframe::App for DirtyRackApp {
                 if ui.button("💾 Save").clicked() {
                     let serial = self.rack.to_serializable();
                     if let Ok(json) = serde_json::to_string_pretty(&serial) {
-                        let _ = std::fs::write("patch.json", json);
+                        let _ = std::fs::write("patch.dirtyrack", json);
                     }
                 }
                 if ui.button("📂 Load").clicked() {
-                    if let Ok(json) = std::fs::read_to_string("patch.json") {
+                    if let Ok(json) = std::fs::read_to_string("patch.dirtyrack") {
                         if let Ok(serial) = serde_json::from_str::<crate::rack::SerializableRack>(&json) {
                             self.rack = crate::rack::RackState::from_serializable(
                                 serial,

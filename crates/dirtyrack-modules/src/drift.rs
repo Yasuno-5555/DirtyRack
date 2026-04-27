@@ -57,6 +57,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_util_drift",
         name: "Drift",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),

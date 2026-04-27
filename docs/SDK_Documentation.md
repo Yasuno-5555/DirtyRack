@@ -56,6 +56,7 @@ fn my_descriptor() -> &'static ModuleDescriptor {
     &ModuleDescriptor {
         id: "com.example.my_vco",
         name: "Super VCO",
+        version: "1.1.0",
         manufacturer: "Example Corp",
         hp_width: 10,
         params: &[ ... ],

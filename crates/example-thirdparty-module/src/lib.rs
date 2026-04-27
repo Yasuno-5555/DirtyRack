@@ -31,6 +31,7 @@ pub fn descriptor() -> &'static ModuleDescriptor {
     &ModuleDescriptor {
         id: "com.dirtyrack.example.gain",
         name: "SDK Example Gain",
+        version: "1.1.0",
         manufacturer: "DirtyRack SDK",
         hp_width: 4,
         visuals: ModuleVisuals {

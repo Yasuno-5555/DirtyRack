@@ -71,6 +71,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_dyn_comp",
         name: "Compressor",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),

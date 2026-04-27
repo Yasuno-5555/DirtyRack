@@ -94,6 +94,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_eff_reverb",
         name: "Reverb",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),

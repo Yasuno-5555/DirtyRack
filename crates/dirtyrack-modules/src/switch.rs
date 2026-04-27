@@ -58,6 +58,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_switch_seq",
         name: "Seq Switch",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 6,
         visuals: crate::signal::ModuleVisuals::default(),

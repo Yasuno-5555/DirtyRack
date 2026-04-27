@@ -58,6 +58,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_clock",
         name: "CLOCK",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 4,
         visuals: crate::signal::ModuleVisuals::default(),

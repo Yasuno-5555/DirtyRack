@@ -1,7 +1,7 @@
 //! Certified Exporter — 監査レポート生成
 //! 
 //! # 憲法遵守
-//! - .dirty.cert から人間が読める美しい HTML レポートを生成。
+//! - .dirtyrack.cert から人間が読める美しい HTML レポートを生成。
 //! - 証拠写真（パッチ画像）や波形統計を含める。
 
 use std::fs::File;

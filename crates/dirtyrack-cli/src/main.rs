@@ -41,7 +41,7 @@ enum Commands {
     Verify {
         /// Path to the WAV file
         wav: PathBuf,
-        /// Path to the .dirty.cert file
+        /// Path to the .dirtyrack.cert file
         cert: PathBuf,
     },
 
@@ -321,7 +321,7 @@ fn main() -> anyhow::Result<()> {
                 "timestamp": chrono::Utc::now().to_rfc3339(),
             });
             
-            let cert_path = wav.with_extension("dirty.cert");
+            let cert_path = wav.with_extension("dirtyrack.cert");
             std::fs::write(&cert_path, serde_json::to_string_pretty(&cert)?)?;
             println!("{} Certificate generated: {:?}", "✓".green().bold(), cert_path);
         }

@@ -76,7 +76,7 @@ impl RecorderModule {
             cert["sample_count"] = serde_json::Value::Number(self.sample_count.into());
             cert["status"] = serde_json::Value::String("CERTIFIED".to_string());
 
-            if let Ok(f) = File::create(format!("{}.dirty.cert", self.render_id)) {
+            if let Ok(f) = File::create(format!("{}.dirtyrack.cert", self.render_id)) {
                 let _ = serde_json::to_writer_pretty(f, &cert);
             }
         }
@@ -128,6 +128,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_recorder",
         name: "CERTIFIED REC",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),

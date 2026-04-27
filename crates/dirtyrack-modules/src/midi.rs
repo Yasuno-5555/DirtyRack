@@ -122,6 +122,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_midi_cv",
         name: "MIDI-CV",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 8,
         visuals: crate::signal::ModuleVisuals::default(),

@@ -212,6 +212,7 @@ impl Default for ModuleVisuals {
 pub struct ModuleDescriptor {
     pub id: &'static str,
     pub name: &'static str,
+    pub version: &'static str,
     pub manufacturer: &'static str,
     pub hp_width: u32,
     pub visuals: ModuleVisuals,

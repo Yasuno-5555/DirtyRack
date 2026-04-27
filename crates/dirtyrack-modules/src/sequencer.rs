@@ -65,6 +65,7 @@ pub fn descriptor() -> crate::signal::BuiltinModuleDescriptor {
     crate::signal::BuiltinModuleDescriptor {
         id: "dirty_sequencer",
         name: "SEQ-8",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 12,
         visuals: crate::signal::ModuleVisuals::default(),

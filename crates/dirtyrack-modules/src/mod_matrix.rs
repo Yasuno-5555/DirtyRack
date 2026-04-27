@@ -66,6 +66,7 @@ pub fn descriptor() -> BuiltinModuleDescriptor {
     BuiltinModuleDescriptor {
         id: "dirty_util_modmatrix",
         name: "Mod Matrix",
+        version: "1.1.0",
         manufacturer: "DirtyRack",
         hp_width: 12,
         visuals: crate::signal::ModuleVisuals::default(),

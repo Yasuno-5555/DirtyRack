@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct ModuleDescriptor {
     pub id: String,
     pub name: String,
+    pub version: String,
     pub manufacturer: String,
     pub hp_width: u32,
     pub visuals: crate::signal::ModuleVisuals,
@@ -80,6 +81,7 @@ impl ModuleRegistry {
             self.modules.push(Arc::new(ModuleDescriptor {
                 id: d.id.to_string(),
                 name: d.name.to_string(),
+                version: d.version.to_string(),
                 manufacturer: d.manufacturer.to_string(),
                 hp_width: d.hp_width,
                 visuals: d.visuals,

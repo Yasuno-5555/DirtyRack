@@ -78,6 +78,7 @@ fn my_descriptor() -> &'static ModuleDescriptor {
     &ModuleDescriptor {
         id: "com.yourname.gain", // Globally unique ID
         name: "My First Gain",   // Name displayed in the browser
+        version: "1.1.0",
         manufacturer: "Independent Crafter",
         hp_width: 4,             // Module width (1HP = 5.08mm)
         
