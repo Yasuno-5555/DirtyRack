@@ -3,16 +3,14 @@
 //! Phase 4: Triple-Buffer による視覚的投影と、
 //! crossbeam-channel によるトポロジー更新を実装。
 
-use crate::rack::RackState;
 use crate::visual_data::{ModuleVisualState, VisualSnapshot};
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use crossbeam_queue::ArrayQueue;
-use dirtyrack_modules::runner::{Connection, GraphSnapshot, RackRunner};
-use dirtyrack_modules::{PatchEvent, RackDspNode, SeedScope};
+use crossbeam_channel::{unbounded, Sender};
+use dirtyrack_modules::runner::{GraphSnapshot, RackRunner};
+use dirtyrack_modules::{RackDspNode, SeedScope};
 use std::sync::Arc;
-use triple_buffer::{Input, Output, TripleBuffer};
+use triple_buffer::Output;
 
 pub enum AudioEvent {
     TopologyChanged,
@@ -21,11 +19,19 @@ pub enum AudioEvent {
 pub struct TopologyUpdate {
     pub snapshot: GraphSnapshot,
     pub nodes: Vec<Box<dyn RackDspNode>>,
+    pub params: Vec<Vec<f32>>,
+}
+
+pub struct ParamChange {
+    pub stable_id: u64,
+    pub params: Vec<f32>,
 }
 
 pub struct RackAudioEngine {
+    #[allow(dead_code)]
     params: Arc<ArcSwap<Vec<Vec<f32>>>>,
     topology_tx: Sender<TopologyUpdate>,
+    param_tx: Sender<ParamChange>,
     aging_tx: Sender<f32>,
     _stream: cpal::Stream,
 }
@@ -34,6 +40,7 @@ impl RackAudioEngine {
     pub fn new(sample_rate: f32) -> Result<(Self, Output<VisualSnapshot>), String> {
         let params = Arc::new(ArcSwap::from_pointee(Vec::new()));
         let (topo_tx, topo_rx) = unbounded::<TopologyUpdate>();
+        let (param_tx, param_rx) = unbounded::<ParamChange>();
         let (aging_tx, aging_rx) = unbounded::<f32>();
 
         let (mut visual_in, visual_out) = triple_buffer::triple_buffer(&VisualSnapshot::new());
@@ -53,7 +60,7 @@ impl RackAudioEngine {
             forward_edges: Vec::new(),
             back_edges: Vec::new(),
         };
-        let params_inner = Arc::clone(&params);
+        let mut current_params = Vec::new();
 
         let stream = device
             .build_output_stream(
@@ -62,7 +69,17 @@ impl RackAudioEngine {
                     // 1. Check for topology updates
                     while let Ok(update) = topo_rx.try_recv() {
                         current_snapshot = update.snapshot;
-                        runner.apply_snapshot(current_snapshot.clone(), update.nodes);
+                        current_params = update.params;
+                        runner.apply_snapshot(&mut current_snapshot, update.nodes);
+                    }
+
+                    // 1.5. Check for parameter updates
+                    while let Ok(change) = param_rx.try_recv() {
+                        if let Some(idx) = current_snapshot.node_ids.iter().position(|&id| id == change.stable_id) {
+                            if idx < current_params.len() {
+                                current_params[idx] = change.params;
+                            }
+                        }
                     }
 
                     // 2. Check for aging updates
@@ -70,7 +87,6 @@ impl RackAudioEngine {
                         runner.ctx.aging = new_aging;
                     }
 
-                    let ps = params_inner.load();
 
                     // Find Audio Out module index
                     let output_node_idx = current_snapshot
@@ -79,47 +95,44 @@ impl RackAudioEngine {
                         .position(|id| id == "dirty_output");
 
                     for frame in data.chunks_mut(2) {
-                        runner.process_sample(&current_snapshot, &ps);
+                        runner.process_sample(&current_snapshot, &current_params);
 
-                        let (mut left, mut right) = (0.0, 0.0);
+                        let (left, right);
                         if let Some(idx) = output_node_idx {
-                            // Audio Out module exists - read its inputs (which were pushed as outputs by zero-latency logic)
-                            // or better, we can have OutputModule store them in its own output buffer.
                             left = runner.get_output(idx, 0);
                             right = runner.get_output(idx, 1);
                         } else {
-                            // Fallback: use the last node's output if no Audio Out is present
-                            let last_node = current_snapshot.order.last().copied().unwrap_or(0);
-                            left = runner.get_output(last_node, 0);
-                            right = left;
+                            if let Some(&last_node) = current_snapshot.order.last() {
+                                left = runner.get_output(last_node, 0);
+                                right = left;
+                            } else {
+                                left = 0.0;
+                                right = 0.0;
+                            }
                         }
 
-                        let master_gain = 0.3; // Default master gain
+                        let master_gain = 0.3;
                         frame[0] = (left * master_gain).clamp(-1.0, 1.0);
                         frame[1] = (right * master_gain).clamp(-1.0, 1.0);
                     }
 
-                    // 鑑識データの収集
+                    // 3. 鑑識データの収集 (バッファごとに1回)
                     let mut visual_snapshot = VisualSnapshot::default();
                     for (i, &stable_id) in current_snapshot.node_ids.iter().enumerate() {
                         let mut state = ModuleVisualState::default();
                         if let Some(node) = runner.active_nodes.get(i) {
                             state.forensic = node.get_forensic_data();
-
-                            // ついでにパーソナリティと現在のドリフト、エンジン統計を注入
                             if let Some(f) = &mut state.forensic {
                                 f.personality_offsets = runner.node_personalities[i]; 
                                 f.current_drift = runner.drift_engine.current_drift();
                                 f.stats = runner.stats[i];
                             }
                         }
-
                         for p_idx in 0..current_snapshot.port_counts[i].1 {
                             state.outputs.push(runner.get_output(i, p_idx));
                         }
                         visual_snapshot.modules.insert(stable_id, state);
                     }
-
                     visual_in.write(visual_snapshot);
                 },
                 |err| eprintln!("Audio error: {}", err),
@@ -132,6 +145,7 @@ impl RackAudioEngine {
         let engine = Self {
             params,
             topology_tx: topo_tx,
+            param_tx,
             aging_tx,
             _stream: stream,
         };
@@ -143,9 +157,13 @@ impl RackAudioEngine {
         self.aging_tx.send(aging).map_err(|e| e.to_string())
     }
 
-    pub fn update_topology(&self, snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
+    pub fn update_topology(&self, snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>, params: Vec<Vec<f32>>) {
         // Wait-free Topology Update: We send the new nodes and snapshot to the audio thread
         // where it will be swapped safely.
-        let _ = self.topology_tx.send(TopologyUpdate { snapshot, nodes });
+        let _ = self.topology_tx.send(TopologyUpdate { snapshot, nodes, params });
+    }
+
+    pub fn update_module_parameters(&self, stable_id: u64, params: Vec<f32>) {
+        let _ = self.param_tx.send(ParamChange { stable_id, params });
     }
 }

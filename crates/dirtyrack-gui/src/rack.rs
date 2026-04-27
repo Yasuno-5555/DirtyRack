@@ -18,7 +18,6 @@ use egui::{vec2, Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use anyhow::Result;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -96,6 +95,7 @@ pub struct Cable {
     pub channels: u8,
 }
 
+#[derive(Debug, Clone)]
 pub enum CableAction {
     StartDrag {
         module_idx: usize,
@@ -147,6 +147,10 @@ pub enum CableAction {
     },
     InspectForensics {
         stable_id: u64,
+    },
+    SelectModule {
+        stable_id: u64,
+        additive: bool,
     },
     CopySelection,
     PasteSelection {
@@ -426,6 +430,7 @@ impl RackState {
 
     pub fn handle_action(&mut self, action: CableAction, registry: &ModuleRegistry, zoom: f32, pan: Vec2) {
         match action {
+// ... (I'll add resolve_overlaps here after the handle_action block or inside it)
             CableAction::StartDrag {
                 module_idx,
                 port_name,
@@ -484,7 +489,7 @@ impl RackState {
                 module_idx,
                 port_name,
             } => {
-                let stable_id = self.modules[module_idx].stable_id;
+                let _stable_id = self.modules[module_idx].stable_id;
                 self.cables.retain(|c| {
                     let match_from = c.from_module == module_idx && c.from_port == port_name;
                     let match_to = c.to_module == module_idx && c.to_port == port_name;
@@ -507,7 +512,7 @@ impl RackState {
             } => {
                 if let Some(m) = self.modules.get_mut(module_idx) {
                     m.params.insert(name.clone(), value);
-                    if let IntentBoundary::Commit(class, _) = intent {
+                    if let IntentBoundary::Commit(_class, _) = intent {
                         self.causality_log.push(CausalityEvent {
                             timestamp: 0.0, // Should use real time if possible
                             event_type: "PARAM".to_string(),
@@ -539,24 +544,37 @@ impl RackState {
                 pointer_pos,
             } => {
                 if let Some(drag) = &self.dragging_module {
-                    let old_hp = self.modules[drag.module_idx].hp_position;
                     let target_world_pos = (pointer_pos + drag.offset - pan) / zoom;
-                    let new_hp = (target_world_pos.x / HP_PIXELS).round();
-                    let delta_hp = new_hp - old_hp;
+                    
+                    let new_hp = target_world_pos.x / HP_PIXELS;
+                    let new_row_f = target_world_pos.y / (RACK_HEIGHT + 20.0);
+                    let new_row = new_row_f.round().max(0.0) as usize;
 
-                    if delta_hp != 0.0 {
+                    let old_hp = self.modules[drag.module_idx].hp_position;
+                    let old_row = self.modules[drag.module_idx].row;
+
+                    let delta_hp = new_hp - old_hp;
+                    let delta_row = new_row as i32 - old_row as i32;
+
+                    if delta_hp.abs() > 0.001 || delta_row != 0 {
                         let dragging_stable_id = self.modules[drag.module_idx].stable_id;
                         if self.selection.contains(&dragging_stable_id) {
                             // Move entire selection
                             for m_id in &self.selection {
                                 if let Some(m) = self.modules.iter_mut().find(|m| m.stable_id == *m_id) {
                                     m.hp_position += delta_hp;
+                                    let r = m.row as i32 + delta_row;
+                                    m.row = r.max(0) as usize;
                                 }
                             }
                         } else {
                             // Just move this one
                             self.modules[drag.module_idx].hp_position = new_hp;
+                            self.modules[drag.module_idx].row = new_row;
                         }
+
+                        // Resolve overlaps (Push logic)
+                        self.resolve_overlaps(drag.module_idx);
                     }
                 }
             }
@@ -576,13 +594,14 @@ impl RackState {
             }
             CableAction::RandomizeParams { module_idx } => {
                 if let Some(m) = self.modules.get_mut(module_idx) {
-                    let seed = m.stable_id; // Simple seed based on ID
+                    let seed = m.stable_id;
                     for (i, p) in m.descriptor.params.iter().enumerate() {
-                        // Deterministic "random" value between min and max
-                        let hash = (seed.wrapping_mul(0x517cc1b727220a95).wrapping_add(i as u64))
-                            as f32
-                            / u64::MAX as f32;
-                        let val = p.min + hash * (p.max - p.min);
+                        // Better scramble to avoid identical values for different params
+                        let h = (seed.wrapping_add(i as u64)).wrapping_mul(0x517cc1b727220a95);
+                        let h = h ^ (h >> 32);
+                        let hash = (h as f64 / u64::MAX as f64) as f32;
+                        
+                        let val = p.min + hash.abs() * (p.max - p.min);
                         m.params.insert(p.name.to_string(), val);
                         self.event_queue.push(PatchEvent::ParamChanged {
                             stable_id: m.stable_id,
@@ -637,6 +656,18 @@ impl RackState {
                 }
             }
             CableAction::InspectForensics { .. } => {}
+            CableAction::SelectModule { stable_id, additive } => {
+                if additive {
+                    if let Some(pos) = self.selection.iter().position(|&id| id == stable_id) {
+                        self.selection.remove(pos);
+                    } else {
+                        self.selection.push(stable_id);
+                    }
+                } else {
+                    self.selection.clear();
+                    self.selection.push(stable_id);
+                }
+            }
             CableAction::CopySelection => {
                 if self.selection.is_empty() { return; }
                 
@@ -741,6 +772,61 @@ impl RackState {
         }
     }
 
+    pub fn resolve_overlaps(&mut self, dragging_idx: usize) {
+        let row = self.modules[dragging_idx].row;
+        
+        // Sort modules in this row by position
+        let mut row_indices: Vec<usize> = (0..self.modules.len())
+            .filter(|&i| self.modules[i].row == row)
+            .collect();
+        
+        row_indices.sort_by(|&a, &b| self.modules[a].hp_position.partial_cmp(&self.modules[b].hp_position).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Recursive push (Simplified iterative version)
+        for _ in 0..self.modules.len() {
+            let mut changed = false;
+            for i in 0..row_indices.len() {
+                for j in 0..row_indices.len() {
+                    if i == j { continue; }
+                    let idx_a = row_indices[i];
+                    let idx_b = row_indices[j];
+                    
+                    let a_start = self.modules[idx_a].hp_position;
+                    let a_end = a_start + self.modules[idx_a].descriptor.hp_width as f32;
+                    let b_start = self.modules[idx_b].hp_position;
+                    let b_end = b_start + self.modules[idx_b].descriptor.hp_width as f32;
+
+                    if a_start < b_end && a_end > b_start {
+                        // Overlap!
+                        // Push to the right
+                        if i < j {
+                            self.modules[idx_b].hp_position = a_end;
+                            changed = true;
+                        } else {
+                            // If i > j, it means idx_b is to the left of idx_a but they overlap
+                            // We should push idx_a to the right of idx_b
+                            self.modules[idx_a].hp_position = b_end;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed { break; }
+        }
+
+        // Ensure no module is at HP < 0
+        // Find the min HP and shift everything if it's < 0
+        let mut min_hp: f32 = 0.0;
+        for &idx in &row_indices {
+            min_hp = min_hp.min(self.modules[idx].hp_position);
+        }
+        if min_hp < 0.0 {
+            for &idx in &row_indices {
+                self.modules[idx].hp_position -= min_hp;
+            }
+        }
+    }
+
     pub fn find_port_at(&self, pos: Pos2) -> Option<(usize, String, bool)> {
         for (m_idx, module) in self.modules.iter().enumerate() {
             let rect = module.world_rect();
@@ -825,7 +911,7 @@ impl RackState {
         self.modules.remove(idx);
     }
 
-    pub fn build_snapshot(&self) -> (GraphSnapshot, Vec<Box<dyn RackDspNode>>) {
+    pub fn build_snapshot(&self) -> (GraphSnapshot, Vec<Box<dyn RackDspNode>>, Vec<Vec<f32>>) {
         let n = self.modules.len();
         let mut order = Vec::with_capacity(n);
         let mut visited = vec![false; n];
@@ -878,11 +964,18 @@ impl RackState {
         let mut node_ids = Vec::with_capacity(n);
         let mut node_type_ids = Vec::with_capacity(n);
         let mut new_nodes = Vec::with_capacity(n);
+        let mut node_params = Vec::with_capacity(n);
         for &idx in &order {
             let m = &self.modules[idx];
             node_ids.push(m.stable_id);
             node_type_ids.push(m.descriptor.id.to_string());
             new_nodes.push((m.descriptor.factory)(self.sample_rate));
+            
+            let mut p_vals = Vec::new();
+            for p_desc in &m.descriptor.params {
+                p_vals.push(*m.params.get(p_desc.name).unwrap_or(&p_desc.default));
+            }
+            node_params.push(p_vals);
         }
 
         let port_counts = order
@@ -941,7 +1034,7 @@ impl RackState {
         (
             GraphSnapshot {
                 modulations: vec![Vec::new(); order.len()],
-                order,
+                order: (0..n).collect(),
                 connections,
                 port_counts,
                 node_ids,
@@ -950,6 +1043,7 @@ impl RackState {
                 back_edges: Vec::new(),
             },
             new_nodes,
+            node_params,
         )
     }
 }
@@ -958,7 +1052,7 @@ pub fn draw_rack_rails(painter: &Painter, viewport: Rect, zoom: f32, pan: Vec2) 
     let rail_color = Color32::from_rgb(60, 55, 50);
     let screw_color = Color32::from_rgb(120, 115, 100);
     let rail_h = 12.0 * zoom;
-    for row in 0..1 {
+    for row in 0..4 {
         let base_y = row as f32 * (RACK_HEIGHT + 20.0) * zoom + pan.y;
         painter.rect_filled(
             Rect::from_min_size(

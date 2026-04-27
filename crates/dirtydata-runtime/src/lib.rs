@@ -13,7 +13,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dirtydata_core::graph_utils::topological_sort;
 use dirtydata_core::ir::{EdgeKind, Graph};
 use dirtydata_core::types::{NodeKind, PortDirection, StableId};
-use dirtydata_core::ConfigSnapshot;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

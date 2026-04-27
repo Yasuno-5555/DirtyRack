@@ -35,7 +35,7 @@ impl Default for DirtyRackPlugin {
         let vco = Box::new(VcoModule::new(sample_rate));
         let output = Box::new(OutputModule::new(sample_rate));
 
-        let snapshot = GraphSnapshot {
+        let mut snapshot = GraphSnapshot {
             order: vec![0, 1, 2],
             connections: vec![
                 Connection {
@@ -77,7 +77,7 @@ impl Default for DirtyRackPlugin {
         };
 
         let nodes: Vec<Box<dyn RackDspNode>> = vec![midi, vco, output];
-        runner.apply_snapshot(snapshot.clone(), nodes);
+        runner.apply_snapshot(&mut snapshot, nodes);
 
         Self {
             params: Arc::new(DirtyRackParams {

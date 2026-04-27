@@ -2,9 +2,9 @@
 //!
 //! ノブ・ジャック・スイッチ・LEDをegui上でカスタム描画。
 
-use crate::rack::{CableAction, RackState, HP_PIXELS, RACK_HEIGHT};
+use crate::rack::{CableAction, RackState};
 use dirtyrack_modules::signal::{
-    IntentBoundary, IntentClass, IntentMetadata, ParamDescriptor, ParamKind, PortDescriptor,
+    IntentBoundary, IntentClass, IntentMetadata, ParamKind,
     PortDirection, SignalType,
 };
 use egui::{vec2, Color32, Pos2, Rect, Stroke, Ui, Vec2};
@@ -34,7 +34,7 @@ struct ModuleLayout {
 pub fn draw_module(
     ui: &mut Ui,
     rack: &mut RackState,
-    registry: &crate::rack::ModuleRegistry,
+    _registry: &crate::rack::ModuleRegistry,
     module_idx: usize,
     zoom: f32,
     pan: Vec2,
@@ -57,9 +57,16 @@ pub fn draw_module(
 
     let screen_rect = layout.screen_rect;
 
-    // --- Faceplate Background Interaction (for moving module) ---
-    let face_id = ui.make_persistent_id(("face", module_idx));
-    let face_resp = ui.interact(screen_rect, face_id, egui::Sense::drag());
+    // --- Faceplate Interaction ---
+    let handle_height = 30.0 * zoom;
+    let handle_rect = Rect::from_min_max(
+        screen_rect.left_top(),
+        screen_rect.left_top() + vec2(screen_rect.width(), handle_height),
+    );
+
+    let face_id = ui.make_persistent_id(("face_panel", module_idx));
+    let face_resp = ui.interact(screen_rect, face_id, egui::Sense::click_and_drag());
+    
     if face_resp.drag_started() {
         if let Some(pos) = ui.input(|i| i.pointer.press_origin()) {
             cable_action = Some(CableAction::StartModuleDrag {
@@ -79,6 +86,23 @@ pub fn draw_module(
     if face_resp.drag_stopped() {
         cable_action = Some(CableAction::CancelDrag);
     }
+    
+    if face_resp.clicked() {
+        let stable_id = rack.modules[module_idx].stable_id;
+        let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+        cable_action = Some(CableAction::SelectModule { stable_id, additive });
+    }
+
+    // Visual Handle Background
+    ui.painter().rect_filled(
+        handle_rect,
+        4.0 * zoom,
+        Color32::from_rgba_unmultiplied(255, 255, 255, 10),
+    );
+    ui.painter().line_segment(
+        [handle_rect.left_bottom(), handle_rect.right_bottom()],
+        Stroke::new(1.0 * zoom, Color32::from_gray(60)),
+    );
 
     // --- Right-click Context Menu ---
     face_resp.context_menu(|ui| {
@@ -144,7 +168,7 @@ pub fn draw_module(
             painter.rect_stroke(
                 module_rect,
                 0.0,
-                Stroke::new(2.0 * zoom, Color32::from_rgb(0, 150, 255)),
+                Stroke::new(3.0 * zoom, Color32::from_rgb(255, 215, 0)), // Gold
             );
         }
 
@@ -638,6 +662,7 @@ fn draw_switch(ui: &mut Ui, center: Pos2, zoom: f32, _positions: u8) {
     let handle = Rect::from_center_size(center + vec2(0.0, -3.0 * zoom), vec2(8.0, 4.0) * zoom);
     painter.rect_filled(handle, 1.0 * zoom, Color32::from_rgb(180, 180, 180));
 }
+
 
 fn draw_button(painter: &egui::Painter, center: Pos2, zoom: f32) {
     painter.circle_filled(center, 6.0 * zoom, Color32::from_rgb(180, 40, 40));

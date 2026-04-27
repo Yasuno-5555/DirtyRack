@@ -2,7 +2,6 @@ use crate::nodes::ProcessContext;
 use crate::DspRunner;
 use dirtydata_core::ir::Graph;
 use dirtydata_observer::divergence::{DivergenceMap, DivergencePoint};
-use dirtydata_core::types::Timestamp;
 
 /// A renderer for offline (faster than real-time) audio generation.
 pub struct OfflineRenderer {
@@ -54,7 +53,7 @@ impl OfflineRenderer {
             return Err("Output length mismatch between identical runs".into());
         }
 
-        for (i, (s1, s2)) in out1.iter().zip(out2.iter()).enumerate() {
+        for (_i, (s1, s2)) in out1.iter().zip(out2.iter()).enumerate() {
             // Check for strict mathematical equality
             if (*s1 - *s2).abs() > 0.0 {
                 return Ok(false);

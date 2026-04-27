@@ -1,5 +1,5 @@
 use dirtydata_core::types::ConfigSnapshot;
-use dirtydata_host::{HostError, PluginHost};
+use dirtydata_host::PluginHost;
 use rand::prelude::*;
 use rand_pcg::Pcg32;
 use std::collections::VecDeque;
@@ -1079,6 +1079,7 @@ impl DspNode for MidiInNode {
 // ──────────────────────────────────────────────
 
 pub struct WavefolderNode {
+    #[allow(dead_code)]
     stages: usize,
 }
 
@@ -1169,6 +1170,7 @@ impl DspNode for LorenzNode {
 
 pub struct MackeyGlassNode {
     history: VecDeque<f32>,
+    #[allow(dead_code)]
     tau_samples: usize,
     beta: f32,
     gamma: f32,
@@ -1238,7 +1240,7 @@ pub struct GrayScottNode {
 
 impl GrayScottNode {
     pub fn new(size: usize) -> Self {
-        let mut u = vec![1.0; size];
+        let u = vec![1.0; size];
         let mut v = vec![0.0; size];
         // Seed some life
         for i in (size / 2 - 5)..(size / 2 + 5) {
@@ -1261,7 +1263,7 @@ impl DspNode for GrayScottNode {
         &mut self,
         _inputs: &[f32],
         outputs: &mut [[f32; 2]],
-        config: &ConfigSnapshot,
+        _config: &ConfigSnapshot,
         _ctx: &ProcessContext,
     ) {
         let mut next_u = self.u.clone();

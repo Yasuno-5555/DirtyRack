@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::ir::{Edge, Graph, Node};
 use crate::patch::Operation;
 use crate::types::*;
-use crate::types::{ConfigDelta, StableId};
+use crate::types::StableId;
 
 /// User-facing action — what humans write.
 /// Internal operations are derived from these.

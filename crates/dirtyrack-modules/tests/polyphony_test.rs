@@ -20,7 +20,7 @@ mod tests {
         midi_ptr.note_on(64, 64, 100); // E4
         midi_ptr.note_on(67, 67, 100); // G4
 
-        let snapshot = GraphSnapshot {
+        let mut snapshot = GraphSnapshot {
             order: vec![0, 1],
             connections: vec![
                 Connection {
@@ -32,9 +32,13 @@ mod tests {
             ],
             port_counts: vec![(0, 5), (4, 4)], // MIDI(0in, 5out), VCO(4in, 4out)
             node_ids: vec![100, 101],
+            node_type_ids: vec!["midi".to_string(), "vco".to_string()],
+            forward_edges: vec![],
+            back_edges: vec![],
+            modulations: vec![vec![], vec![]],
         };
 
-        runner.apply_snapshot(snapshot.clone(), vec![midi, vco]);
+        runner.apply_snapshot(&mut snapshot, vec![midi, vco]);
 
         let params = vec![
             vec![],                   // MIDI-CV (0 params)

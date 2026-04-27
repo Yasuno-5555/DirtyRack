@@ -2,12 +2,9 @@
 //!
 //! 重力シミュレーション付きベジェ曲線ケーブル。
 
-use crate::rack::{Cable, CableAction, DraggingCable, DraggingModule, RackState, ModuleRegistry};
-use dirtyrack_modules::signal::SignalType;
+use crate::rack::{CableAction, RackState, ModuleRegistry};
 use egui::{vec2, Color32, Painter, Pos2, Stroke, Vec2};
 
-/// ケーブルの重力たるみ係数
-const CABLE_SAG: f32 = 0.15;
 
 /// ケーブル色パレット（接続順にサイクル）
 pub const CABLE_COLORS: &[Color32] = &[
@@ -36,7 +33,7 @@ pub fn draw_cables(painter: &Painter, rack: &RackState, zoom: f32, pan: Vec2) {
             let screen_to = (to.to_vec2() * zoom + pan).to_pos2();
             
             // Tier B: Polyphonic Thickness & Activity
-            let mut thickness = (2.0 + (cable.channels as f32 * 0.5)).min(8.0);
+            let thickness = (2.0 + (cable.channels as f32 * 0.5)).min(8.0);
             
             // Add subtle pulsing based on signal (if we had access to real-time signal here)
             // For now, use the channel count to drive thickness

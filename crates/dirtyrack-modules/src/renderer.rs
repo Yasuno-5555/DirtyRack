@@ -9,6 +9,7 @@ use crate::signal::{RackDspNode, SeedScope};
 pub struct OfflineRenderer {
     runner: RackRunner,
     snapshot: GraphSnapshot,
+    params: Vec<Vec<f32>>,
 }
 
 impl OfflineRenderer {
@@ -17,10 +18,12 @@ impl OfflineRenderer {
         seed_scope: SeedScope,
         snapshot: GraphSnapshot,
         nodes: Vec<Box<dyn RackDspNode>>,
+        params: Vec<Vec<f32>>,
     ) -> Self {
         let mut runner = RackRunner::new(sample_rate, seed_scope);
-        runner.apply_snapshot(snapshot.clone(), nodes);
-        Self { runner, snapshot }
+        let mut snapshot = snapshot;
+        runner.apply_snapshot(&mut snapshot, nodes);
+        Self { runner, snapshot, params }
     }
 
     /// 指定されたサンプル数だけレンダリングし、ステレオバッファとハッシュを返す
@@ -29,7 +32,7 @@ impl OfflineRenderer {
         let mut hasher = blake3::Hasher::new();
 
         for _ in 0..samples {
-            self.runner.process_sample(&self.snapshot, &[]);
+            self.runner.process_sample(&self.snapshot, &self.params);
             let l = self.runner.get_output(output_module, 0);
             let r = self.runner.get_output(output_module, 1);
             
@@ -46,6 +49,7 @@ pub struct DeepAuditor {
     engine_a: RackRunner,
     engine_b: RackRunner,
     snapshot: GraphSnapshot,
+    params: Vec<Vec<f32>>,
 }
 
 impl DeepAuditor {
@@ -55,24 +59,26 @@ impl DeepAuditor {
         snapshot: GraphSnapshot,
         nodes_a: Vec<Box<dyn RackDspNode>>,
         nodes_b: Vec<Box<dyn RackDspNode>>,
+        params: Vec<Vec<f32>>,
     ) -> Self {
         let mut engine_a = RackRunner::new(sample_rate, SeedScope::Global(seed));
         let mut engine_b = RackRunner::new(sample_rate, SeedScope::Global(seed));
-        engine_a.apply_snapshot(snapshot.clone(), nodes_a);
-        engine_b.apply_snapshot(snapshot.clone(), nodes_b);
-        Self { engine_a, engine_b, snapshot }
+        let mut snapshot = snapshot;
+        engine_a.apply_snapshot(&mut snapshot, nodes_a);
+        engine_b.apply_snapshot(&mut snapshot, nodes_b);
+        Self { engine_a, engine_b, snapshot, params }
     }
 
     pub fn find_divergence(&mut self, max_samples: usize) -> Option<(usize, usize, f32, f32)> {
         for s in 0..max_samples {
-            self.engine_a.process_sample(&self.snapshot, &[]);
-            self.engine_b.process_sample(&self.snapshot, &[]);
+            self.engine_a.process_sample(&self.snapshot, &self.params);
+            self.engine_b.process_sample(&self.snapshot, &self.params);
 
             for &idx in &self.snapshot.order {
                 let out_a = &self.engine_a.output_buffers[idx];
                 let out_b = &self.engine_b.output_buffers[idx];
                 
-                for (v, (&a, &b)) in out_a.iter().zip(out_b.iter()).enumerate() {
+                for (_v, (&a, &b)) in out_a.iter().zip(out_b.iter()).enumerate() {
                     if (a - b).abs() > 1e-7 {
                         return Some((s, idx, a, b));
                     }

@@ -6,7 +6,7 @@
 //! 3. BTreeMap 排除によるインデックスベースの高速アクセス。
 
 use crate::drift_engine::VoiceDriftEngine;
-use crate::signal::{ImperfectionData, RackDspNode, RackProcessContext, SeedScope};
+use crate::signal::{RackDspNode, RackProcessContext, SeedScope};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -68,7 +68,7 @@ impl RackRunner {
         }
     }
 
-    pub fn apply_snapshot(&mut self, mut snapshot: GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
+    pub fn apply_snapshot(&mut self, snapshot: &mut GraphSnapshot, nodes: Vec<Box<dyn RackDspNode>>) {
         let mut order_map = vec![0; nodes.len()];
         for (i, &node_idx) in snapshot.order.iter().enumerate() {
             order_map[node_idx] = i;
@@ -99,19 +99,8 @@ impl RackRunner {
             .map(|(inp, _)| vec![0.0; inp * 16])
             .collect();
         
-        self.modulated_params = snapshot
-            .modulations
-            .iter()
-            .map(|m| vec![0.0; m.len()]) // This is wrong, it should be based on descriptor param count
-            .collect();
-        
-        // Re-initialize modulated_params correctly
-        self.modulated_params.clear();
-        for i in 0..self.active_nodes.len() {
-            // How do we know the param count? It's in the descriptor, but we only have nodes here.
-            // For now, let's just use a large enough buffer or pass it in.
-            self.modulated_params.push(vec![0.0; 64]); 
-        }
+        self.modulated_params = vec![vec![0.0; 64]; self.active_nodes.len()];
+        self.stats = vec![crate::signal::EngineStats::default(); self.active_nodes.len()];
 
         self.node_personalities = Vec::with_capacity(self.active_nodes.len());
         for i in 0..self.active_nodes.len() {
@@ -156,20 +145,24 @@ impl RackRunner {
                 self.ctx.imperfection.personality = self.node_personalities[idx];
 
                 // --- Apply Modulations ---
-                let mut params = base_params.get(idx).cloned().unwrap_or_else(|| vec![0.0; 64]);
+                // Copy base params to modulated_params first
+                if let Some(base) = base_params.get(idx) {
+                    let target = &mut self.modulated_params[idx];
+                    let len = base.len().min(target.len());
+                    target[..len].copy_from_slice(&base[..len]);
+                }
+
+                // Apply modulations on top
                 for mod_entry in &snapshot.modulations[idx] {
                     if let Some(src_buf) = self.output_buffers.get(mod_entry.src_module_idx) {
                         let mod_val = src_buf[mod_entry.src_port_idx * 16]; 
-                        params[mod_entry.param_idx] += mod_val * mod_entry.amount;
+                        self.modulated_params[idx][mod_entry.param_idx] += mod_val * mod_entry.amount;
                     }
                 }
 
                 let ins = &self.input_buffers[idx];
                 let outs = &mut self.output_buffers[idx];
-                node.process(ins, outs, &params, &self.ctx);
-                
-                // Store for forensics/UI
-                self.modulated_params[idx] = params;
+                node.process(ins, outs, &self.modulated_params[idx], &self.ctx);
 
                 // --- High-End Signal Integrity Sentry & Stats ---
                 let stats = &mut self.stats[idx];
@@ -221,7 +214,7 @@ impl RackRunner {
 
     pub fn get_output(&self, module_idx: usize, port_idx: usize) -> f32 {
         if let Some(buf) = self.output_buffers.get(module_idx) {
-            return *buf.get(port_idx).unwrap_or(&0.0);
+            return *buf.get(port_idx * 16).unwrap_or(&0.0);
         }
         0.0
     }

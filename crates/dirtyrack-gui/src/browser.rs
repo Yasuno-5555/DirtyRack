@@ -2,7 +2,7 @@
 
 use crate::rack::RackState;
 use dirtyrack_modules::registry::ModuleRegistry;
-use egui::{vec2, Color32};
+use egui::Color32;
 
 /// モジュールブラウザを描画
 pub fn draw_browser(

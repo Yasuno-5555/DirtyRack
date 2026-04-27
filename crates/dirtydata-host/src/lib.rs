@@ -57,14 +57,14 @@ impl PluginHost {
 
     pub fn process(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), HostError> {
         let mut stdin = self.child.stdin.as_ref().ok_or(HostError::Crashed)?;
-        let mut stdout = self.child.stdout.as_mut().ok_or(HostError::Crashed)?;
+        let stdout = self.child.stdout.as_mut().ok_or(HostError::Crashed)?;
 
         // Send Command
         let cmd = HostCommand::Process as u8;
         stdin.write_all(&[cmd])?;
 
         // Send size (u32)
-        let size = (input.len() as u32);
+        let size = input.len() as u32 ;
         stdin.write_all(&size.to_le_bytes())?;
 
         // Write input buffer as bytes
